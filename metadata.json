@@ -1,0 +1,6 @@
+{
+  "name": "Story Test",
+  "description": "Automated accessibility test tool for verifying Facebook story flows with link sharing, inspector overlay, and safety checks.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

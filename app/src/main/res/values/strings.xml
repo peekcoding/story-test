@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Story Test</string>
+    <string name="accessibility_service_description">Automates UI test interactions and captures screen hierarchies for hands-free story testing.</string>
+</resources>
