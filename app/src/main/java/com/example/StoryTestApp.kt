@@ -12,13 +12,22 @@ class StoryTestApp : Application() {
     lateinit var repository: StoryTestRepository
         private set
 
+    lateinit var portalRepository: com.example.portal.PortalRepository
+        private set
+
     override fun onCreate() {
         super.onCreate()
         val db = AppDatabase.getInstance(this)
         repository = StoryTestRepository(db)
+        portalRepository = com.example.portal.PortalRepository(this)
 
         CoroutineScope(Dispatchers.IO).launch {
             repository.seedDefaultsIfEmpty()
+        }
+
+        // Start PortalService if phone is registered
+        if (portalRepository.isRegistered()) {
+            com.example.portal.PortalService.start(this)
         }
     }
 }

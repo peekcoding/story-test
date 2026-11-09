@@ -48,11 +48,21 @@ import com.example.ui.theme.StoryTestTheme
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
+import androidx.compose.material.icons.filled.SmartButton
+import androidx.compose.material.icons.outlined.SmartButton
+import com.example.ui.screens.PopupsScreen
+
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.outlined.Cloud
+import com.example.ui.screens.PortalScreen
+
 enum class AppTab(val title: String, val selectedIcon: ImageVector, val unselectedIcon: ImageVector) {
     HOME("Home", Icons.Filled.Home, Icons.Outlined.Home),
+    PORTAL("Portal", Icons.Filled.Cloud, Icons.Outlined.Cloud),
     SCRIPTS("Scripts", Icons.Filled.Layers, Icons.Outlined.Layers),
     RUN("Run", Icons.Filled.PlayArrow, Icons.Outlined.PlayArrow),
     CAPTURES("Captures", Icons.Filled.CameraAlt, Icons.Outlined.CameraAlt),
+    POPUPS("Popups", Icons.Filled.SmartButton, Icons.Outlined.SmartButton),
     SAFETY("Safety", Icons.Filled.Security, Icons.Outlined.Security)
 }
 
@@ -132,7 +142,11 @@ fun StoryTestAppRoot(viewModel: StoryTestViewModel) {
                     onNavigateToRun = { currentTab = AppTab.RUN },
                     onNavigateToScripts = { currentTab = AppTab.SCRIPTS },
                     onNavigateToCaptures = { currentTab = AppTab.CAPTURES },
-                    onNavigateToSafety = { currentTab = AppTab.SAFETY }
+                    onNavigateToSafety = { currentTab = AppTab.SAFETY },
+                    onNavigateToPortal = { currentTab = AppTab.PORTAL }
+                )
+                AppTab.PORTAL -> PortalScreen(
+                    viewModel = viewModel
                 )
                 AppTab.SCRIPTS -> ScriptsScreen(
                     viewModel = viewModel,
@@ -146,6 +160,9 @@ fun StoryTestAppRoot(viewModel: StoryTestViewModel) {
                     preselectedScriptId = preselectedScriptId
                 )
                 AppTab.CAPTURES -> CapturesScreen(
+                    viewModel = viewModel
+                )
+                AppTab.POPUPS -> PopupsScreen(
                     viewModel = viewModel
                 )
                 AppTab.SAFETY -> SafetyScreen(

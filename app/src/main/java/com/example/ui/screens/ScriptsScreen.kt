@@ -580,6 +580,7 @@ fun StepDetailEditDialog(
     var sleepMs by remember { mutableStateOf(initialStep.sleepMs.toString()) }
     var packageName by remember { mutableStateOf(initialStep.packageName) }
     var screenshotName by remember { mutableStateOf(initialStep.screenshotName) }
+    var maxSwipes by remember { mutableStateOf(initialStep.maxSwipes.toString()) }
 
     var typeMenuExpanded by remember { mutableStateOf(false) }
 
@@ -738,15 +739,93 @@ fun StepDetailEditDialog(
                             modifier = Modifier.padding(top = 8.dp)
                         )
                     }
+
+                    StepType.SWIPE_UNTIL_TEXT -> {
+                        OutlinedTextField(
+                            value = text,
+                            onValueChange = { text = it },
+                            label = { Text("Target Text") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Exact Match", color = TextSecondary, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Switch(checked = exact, onCheckedChange = { exact = it })
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = yPercent,
+                                onValueChange = { yPercent = it },
+                                label = { Text("Y % (0-100)") },
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = maxSwipes,
+                                onValueChange = { maxSwipes = it },
+                                label = { Text("Max Swipes (default 5)") },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    StepType.WAIT_SEEN -> {
+                        OutlinedTextField(
+                            value = text,
+                            onValueChange = { text = it },
+                            label = { Text("Seen Text to Wait For (e.g. Story shared)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    StepType.SWITCH_PAGE -> {
+                        OutlinedTextField(
+                            value = text,
+                            onValueChange = { text = it },
+                            label = { Text("Target Page Name") },
+                            placeholder = { Text("{{PAGE_NAME}} or Page Name") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Insert:", color = TextSecondary, fontSize = 12.sp)
+                            OutlinedButton(
+                                onClick = { text += "{{PAGE_NAME}}" },
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text("{{PAGE_NAME}}", fontSize = 11.sp)
+                            }
+                        }
+                    }
+
+                    StepType.REPORT -> {
+                        OutlinedTextField(
+                            value = text,
+                            onValueChange = { text = it },
+                            label = { Text("Report Event Text (e.g. opening_facebook)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    StepType.PREPARE_MODEL_VIDEO -> {
+                        Text(
+                            text = "Prepares the newest video from Movies/PageShare/{{MODEL_CODE}}/ into DCIM/PageShareStory/",
+                            color = TextSecondary,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
                 }
 
                 // Timeout config for nodes/wait
                 if (type == StepType.TAP_TEXT || type == StepType.TAP_DESC || type == StepType.TAP_ID ||
-                    type == StepType.WAIT_TEXT || type == StepType.WAIT_DESC || type == StepType.LONG_PRESS_TEXT) {
+                    type == StepType.WAIT_TEXT || type == StepType.WAIT_DESC || type == StepType.LONG_PRESS_TEXT ||
+                    type == StepType.WAIT_SEEN || type == StepType.SWITCH_PAGE) {
                     OutlinedTextField(
                         value = timeoutMs,
                         onValueChange = { timeoutMs = it },
-                        label = { Text("Timeout (ms, default 10000)") },
+                        label = { Text(if (type == StepType.SWITCH_PAGE) "Timeout (ms, default 60000)" else "Timeout (ms, default 10000)") },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -766,7 +845,8 @@ fun StepDetailEditDialog(
                         timeoutMs = timeoutMs.toLongOrNull() ?: 10000L,
                         sleepMs = sleepMs.toLongOrNull() ?: 1000L,
                         packageName = packageName,
-                        screenshotName = screenshotName
+                        screenshotName = screenshotName,
+                        maxSwipes = maxSwipes.toIntOrNull() ?: 5
                     )
                     onConfirm(step)
                 },

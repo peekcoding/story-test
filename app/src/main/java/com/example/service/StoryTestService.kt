@@ -65,6 +65,7 @@ import kotlin.coroutines.resume
 
 data class LiveRunState(
     val isRunning: Boolean = false,
+    val taskUuid: String? = null,
     val isPausedNeedsPerson: Boolean = false,
     val needsPersonReason: String? = null,
     val scriptName: String = "",
@@ -76,7 +77,11 @@ data class LiveRunState(
     val currentStepName: String = "",
     val elapsedSeconds: Int = 0,
     val results: List<RunResult> = emptyList(),
-    val isCompleted: Boolean = false
+    val isCompleted: Boolean = false,
+    val runLogs: List<String> = emptyList(),
+    val recentSeenTexts: List<com.example.data.model.SeenTextEntry> = emptyList(),
+    val currentTaskReachedAboutToShare: Boolean = false,
+    val isStoppedByPerson: Boolean = false
 )
 
 class StoryTestService : AccessibilityService(), AutomationActionHandler {
@@ -89,6 +94,14 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
         val liveRunState: StateFlow<LiveRunState> = _liveRunState.asStateFlow()
 
         fun isServiceRunning(): Boolean = _serviceInstance.value != null
+
+        fun updateLiveTaskState(taskUuid: String?, currentStep: String?, isRunning: Boolean) {
+            _liveRunState.value = _liveRunState.value.copy(
+                taskUuid = taskUuid,
+                currentStepName = currentStep ?: "",
+                isRunning = isRunning
+            )
+        }
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -118,8 +131,61 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
         _serviceInstance.value = null
     }
 
+    private val seenTextMemory = com.example.engine.SeenTextMemory(500)
+
+    override fun hasSeenTextAfter(text: String, afterTimestamp: Long): Boolean {
+        return seenTextMemory.hasSeenAfter(text, afterTimestamp)
+    }
+
+    override fun getRecentSeenTexts(): List<com.example.data.model.SeenTextEntry> {
+        return seenTextMemory.getAllEntries()
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Active event listening for window state
+        if (event == null) return
+        val now = System.currentTimeMillis()
+
+        // 1. event.text
+        event.text?.forEach { charSeq ->
+            val str = charSeq?.toString()?.trim()
+            if (!str.isNullOrEmpty()) {
+                seenTextMemory.record(str, now)
+            }
+        }
+
+        // 2. event.contentDescription
+        event.contentDescription?.toString()?.trim()?.let { desc ->
+            if (desc.isNotEmpty()) {
+                seenTextMemory.record(desc, now)
+            }
+        }
+
+        // 3. event.source and all its children
+        try {
+            val source = event.source
+            if (source != null) {
+                collectNodeTextsRecursively(source, now)
+            }
+        } catch (e: Exception) {
+            // Node could be recycled or window changing
+        }
+    }
+
+    private fun collectNodeTextsRecursively(node: AccessibilityNodeInfo, timestamp: Long) {
+        node.text?.toString()?.trim()?.let { str ->
+            if (str.isNotEmpty()) {
+                seenTextMemory.record(str, timestamp)
+            }
+        }
+        node.contentDescription?.toString()?.trim()?.let { desc ->
+            if (desc.isNotEmpty()) {
+                seenTextMemory.record(desc, timestamp)
+            }
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            collectNodeTextsRecursively(child, timestamp)
+        }
     }
 
     override fun onInterrupt() {
@@ -379,8 +445,37 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
     }
 
     override fun getCurrentHierarchy(): ScreenNode? {
-        val root = rootInActiveWindow ?: return null
-        return buildScreenNode(root)
+        val windowRoots = mutableListOf<AccessibilityNodeInfo>()
+        try {
+            val allWindows = windows
+            if (allWindows != null && allWindows.isNotEmpty()) {
+                for (w in allWindows) {
+                    val root = w.root
+                    if (root != null) {
+                        windowRoots.add(root)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Fallback to active window
+        }
+
+        if (windowRoots.isEmpty()) {
+            val fallback = rootInActiveWindow ?: return null
+            return buildScreenNode(fallback)
+        }
+
+        if (windowRoots.size == 1) {
+            return buildScreenNode(windowRoots[0])
+        }
+
+        // Virtual composite root containing all window hierarchies
+        val children = windowRoots.map { buildScreenNode(it) }
+        return ScreenNode(
+            id = UUID.randomUUID().toString(),
+            className = "android.view.View",
+            children = children
+        )
     }
 
     private fun buildScreenNode(node: AccessibilityNodeInfo): ScreenNode {
@@ -435,15 +530,31 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
     }
 
     override suspend fun performTapNode(node: ScreenNode): Boolean {
-        // First try to find native AccessibilityNodeInfo and invoke ACTION_CLICK
         val nativeNode = findNativeNode(node)
-        if (nativeNode != null && nativeNode.isClickable) {
-            if (nativeNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                return true
+        if (nativeNode != null) {
+            if (nativeNode.isClickable) {
+                if (nativeNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    return true
+                }
+            } else {
+                // When a matched node is not clickable, tap its nearest clickable parent
+                var current: AccessibilityNodeInfo? = nativeNode
+                var clickableParent: AccessibilityNodeInfo? = null
+                while (current != null) {
+                    val parent = current.parent
+                    if (parent != null && parent.isClickable) {
+                        clickableParent = parent
+                        break
+                    }
+                    current = parent
+                }
+                if (clickableParent != null && clickableParent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    return true
+                }
             }
         }
 
-        // Fallback: Dispatch gesture tap at center of node bounds
+        // If there is none, tap the centre of its bounds with a gesture
         val cx = node.bounds.centerX.toFloat()
         val cy = node.bounds.centerY.toFloat()
         return dispatchGestureTap(cx, cy)
@@ -451,9 +562,25 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
 
     override suspend fun performLongPressNode(node: ScreenNode): Boolean {
         val nativeNode = findNativeNode(node)
-        if (nativeNode != null && nativeNode.isLongClickable) {
-            if (nativeNode.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)) {
-                return true
+        if (nativeNode != null) {
+            if (nativeNode.isLongClickable) {
+                if (nativeNode.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)) {
+                    return true
+                }
+            } else {
+                var current: AccessibilityNodeInfo? = nativeNode
+                var clickableParent: AccessibilityNodeInfo? = null
+                while (current != null) {
+                    val parent = current.parent
+                    if (parent != null && parent.isLongClickable) {
+                        clickableParent = parent
+                        break
+                    }
+                    current = parent
+                }
+                if (clickableParent != null && clickableParent.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)) {
+                    return true
+                }
             }
         }
 
@@ -469,36 +596,196 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
         return dispatchGestureTap(x, y)
     }
 
-    override suspend fun performTypeText(text: String): Boolean {
-        // Try to find focused editable node
-        val root = rootInActiveWindow
-        val focused = root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-
-        if (focused != null && focused.isEditable) {
-            val args = Bundle().apply {
-                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
-            }
-            if (focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
-                return true
+    override suspend fun performTypeText(text: String): String? {
+        // 1. Find the focused editable node (FOCUS_INPUT). If none, find the first editable node
+        // on screen and perform ACTION_CLICK + ACTION_FOCUS on it, wait 300 ms.
+        var targetNode: AccessibilityNodeInfo? = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (targetNode == null || !targetNode.isEditable) {
+            val firstEditable = findFirstEditableInAllWindows()
+            if (firstEditable != null) {
+                firstEditable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                firstEditable.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                delay(300L)
+                val refreshedFocus = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                targetNode = if (refreshedFocus != null && refreshedFocus.isEditable) {
+                    refreshedFocus
+                } else {
+                    firstEditable
+                }
             }
         }
 
-        // Fallback: Copy to clipboard and perform ACTION_PASTE
-        return withContext(Dispatchers.Main) {
+        if (targetNode == null) {
+            return null
+        }
+
+        // 2. Clear it: ACTION_SET_TEXT with an empty string, wait 200 ms.
+        val clearArgs = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
+        }
+        targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, clearArgs)
+        delay(200L)
+
+        // 3. Put the text on the clipboard (ClipboardManager.setPrimaryClip), wait 200 ms.
+        withContext(Dispatchers.Main) {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText("StoryTest", text))
+        }
+        delay(200L)
 
-            if (focused != null) {
-                focused.performAction(AccessibilityNodeInfo.ACTION_PASTE)
-            } else {
-                // If no focused element, tap center of screen then paste
-                val metrics = getDisplayMetrics()
-                dispatchGestureTap(metrics.widthPixels / 2f, metrics.heightPixels / 2f)
-                delay(300)
-                rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                    ?.performAction(AccessibilityNodeInfo.ACTION_PASTE) ?: false
+        // 4. Perform ACTION_PASTE on the field, wait 500 ms.
+        targetNode.refresh()
+        targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+        delay(500L)
+
+        // 5. Re-read the field. If its text contains the wanted text, success.
+        targetNode.refresh()
+        var currentText = targetNode.text?.toString() ?: ""
+        if (!currentText.contains(text, ignoreCase = false)) {
+            val activeFocus = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            if (activeFocus != null) {
+                currentText = activeFocus.text?.toString() ?: ""
+                targetNode = activeFocus
             }
         }
+        if (currentText.contains(text, ignoreCase = false)) {
+            return "paste"
+        }
+
+        // 6. Only if paste failed: fall back to ACTION_SET_TEXT with the full text.
+        val setArgs = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        }
+        val setSuccess = targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, setArgs)
+        delay(200L)
+        targetNode.refresh()
+        val finalText = targetNode.text?.toString()
+            ?: (rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.text?.toString() ?: "")
+        if (finalText.contains(text, ignoreCase = false) || setSuccess) {
+            return "set_text"
+        }
+
+        return null
+    }
+
+    override suspend fun performTypeLetterByLetter(text: String): Boolean {
+        // Wait until focused (up to 3s)
+        var targetNode: AccessibilityNodeInfo? = null
+        val startFocusWait = System.currentTimeMillis()
+        while (System.currentTimeMillis() - startFocusWait < 3000L) {
+            val focused = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            if (focused != null && focused.isEditable) {
+                targetNode = focused
+                break
+            }
+            val firstEditable = findFirstEditableInAllWindows()
+            if (firstEditable != null) {
+                firstEditable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                firstEditable.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                targetNode = firstEditable
+                break
+            }
+            delay(200L)
+        }
+
+        if (targetNode == null) return false
+
+        // Clear box: ACTION_SET_TEXT ""
+        val clearArgs = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
+        }
+        targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, clearArgs)
+        delay(200L)
+
+        // Normalized name (line breaks to spaces)
+        val normalized = com.example.engine.NameMatcher.normalize(text)
+
+        // Type one character at a time: 150 ms between characters
+        for (i in 1..normalized.length) {
+            val partial = normalized.substring(0, i)
+            val args = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, partial)
+            }
+            targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            delay(150L)
+        }
+
+        // After last character, wait 1s
+        delay(1000L)
+
+        // Add a space and remove it again (300ms apart)
+        val spaceArgs = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "$normalized ")
+        }
+        targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, spaceArgs)
+        delay(300L)
+
+        val removeSpaceArgs = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, normalized)
+        }
+        targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, removeSpaceArgs)
+        delay(300L)
+
+        return true
+    }
+
+    override suspend fun performPasteOnly(text: String): Boolean {
+        var targetNode: AccessibilityNodeInfo? = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (targetNode == null || !targetNode.isEditable) {
+            val firstEditable = findFirstEditableInAllWindows()
+            if (firstEditable != null) {
+                firstEditable.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                firstEditable.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                delay(300L)
+                val refreshedFocus = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                targetNode = if (refreshedFocus != null && refreshedFocus.isEditable) refreshedFocus else firstEditable
+            }
+        }
+        if (targetNode == null) return false
+
+        // Clear box
+        val clearArgs = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
+        }
+        targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, clearArgs)
+        delay(200L)
+
+        // Put text on clipboard
+        withContext(Dispatchers.Main) {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("StoryTest", text))
+        }
+        delay(200L)
+
+        targetNode.refresh()
+        return targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+    }
+
+    private fun findFirstEditableInAllWindows(): AccessibilityNodeInfo? {
+        rootInActiveWindow?.let { root ->
+            val found = findFirstEditableNode(root)
+            if (found != null) return found
+        }
+        try {
+            for (window in windows) {
+                val root = window.root ?: continue
+                val found = findFirstEditableNode(root)
+                if (found != null) return found
+            }
+        } catch (e: Exception) {
+            // Windows list might not be accessible
+        }
+        return null
+    }
+
+    private fun findFirstEditableNode(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        if (node.isEditable) return node
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = findFirstEditableNode(child)
+            if (found != null) return found
+        }
+        return null
     }
 
     override suspend fun performScroll(down: Boolean): Boolean {
@@ -507,6 +794,72 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
         val startY = if (down) metrics.heightPixels * 0.75f else metrics.heightPixels * 0.25f
         val endY = if (down) metrics.heightPixels * 0.25f else metrics.heightPixels * 0.75f
         return dispatchGestureSwipe(startX, startY, startX, endY, 400L)
+    }
+
+    override suspend fun performHorizontalSwipe(startXPercent: Float, endXPercent: Float, yPercent: Float): Boolean {
+        val metrics = getDisplayMetrics()
+        val startX = (startXPercent / 100f) * metrics.widthPixels
+        val endX = (endXPercent / 100f) * metrics.widthPixels
+        val y = (yPercent / 100f) * metrics.heightPixels
+        return dispatchGestureSwipe(startX, y, endX, y, 400L)
+    }
+
+    private fun findScrollableNode(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        if (node.isScrollable) return node
+        val cls = node.className?.toString() ?: ""
+        if (cls.contains("RecyclerView", ignoreCase = true) ||
+            cls.contains("ListView", ignoreCase = true) ||
+            cls.contains("ScrollView", ignoreCase = true)
+        ) {
+            return node
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = findScrollableNode(child)
+            if (found != null) return found
+        }
+        return null
+    }
+
+    override suspend fun scrollListForward(): Boolean {
+        try {
+            rootInActiveWindow?.let { root ->
+                val scrollable = findScrollableNode(root)
+                if (scrollable != null && scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) {
+                    return true
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
+        try {
+            val allWindows = windows
+            if (allWindows != null) {
+                for (w in allWindows) {
+                    val root = w.root ?: continue
+                    val scrollable = findScrollableNode(root)
+                    if (scrollable != null && scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) {
+                        return true
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
+        return false
+    }
+
+    override suspend fun performVerticalSwipe(
+        xPercent: Float,
+        startYPercent: Float,
+        endYPercent: Float,
+        durationMs: Long
+    ): Boolean {
+        val metrics = getDisplayMetrics()
+        val x = (xPercent / 100f) * metrics.widthPixels
+        val startY = (startYPercent / 100f) * metrics.heightPixels
+        val endY = (endYPercent / 100f) * metrics.heightPixels
+        return dispatchGestureSwipe(x, startY, x, endY, durationMs)
     }
 
     override suspend fun dispatchGlobal(action: Int): Boolean {
@@ -547,6 +900,10 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
 
     override suspend fun sleep(ms: Long) {
         delay(ms)
+    }
+
+    override suspend fun prepareModelVideo(modelCode: String): Boolean {
+        return com.example.portal.ModelVideoScanner(this).prepareNewestModelVideoForStory(modelCode)
     }
 
     // =========================================================================
@@ -615,8 +972,23 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
     }
 
     private fun findNativeNode(target: ScreenNode): AccessibilityNodeInfo? {
-        val root = rootInActiveWindow ?: return null
-        return searchNativeNode(root, target)
+        rootInActiveWindow?.let { root ->
+            val found = searchNativeNode(root, target)
+            if (found != null) return found
+        }
+        try {
+            val allWindows = windows
+            if (allWindows != null) {
+                for (w in allWindows) {
+                    val root = w.root ?: continue
+                    val found = searchNativeNode(root, target)
+                    if (found != null) return found
+                }
+            }
+        } catch (e: Exception) {
+            // Windows list might not be accessible
+        }
+        return null
     }
 
     private fun searchNativeNode(current: AccessibilityNodeInfo, target: ScreenNode): AccessibilityNodeInfo? {
@@ -666,8 +1038,10 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
         val steps = JsonCodec.jsonToSteps(script.stepsJson)
         val validPages = pageNames.filter { it.isNotBlank() }
 
+        val taskUuid = UUID.randomUUID().toString()
         _liveRunState.value = LiveRunState(
             isRunning = true,
+            taskUuid = taskUuid,
             scriptName = script.name,
             totalPages = validPages.size,
             totalSteps = steps.size,
@@ -675,7 +1049,9 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
             currentPageIndex = 0,
             currentStepNumber = 0,
             elapsedSeconds = 0,
-            results = emptyList()
+            results = emptyList(),
+            runLogs = listOf("Batch run initialized for ${validPages.size} pages"),
+            recentSeenTexts = seenTextMemory.getAllEntries()
         )
 
         // Elapsed time ticker
@@ -683,14 +1059,29 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
             while (_liveRunState.value.isRunning && !_liveRunState.value.isPausedNeedsPerson) {
                 delay(1000)
                 _liveRunState.value = _liveRunState.value.copy(
-                    elapsedSeconds = _liveRunState.value.elapsedSeconds + 1
+                    elapsedSeconds = _liveRunState.value.elapsedSeconds + 1,
+                    recentSeenTexts = seenTextMemory.getAllEntries()
                 )
             }
         }
 
         batchRunJob = serviceScope.launch(Dispatchers.Default) {
             val safetyKeywords = repository.getActiveSafetyPhrases()
+            val popupRules = repository.getActivePopupRules()
             val mutableResults = mutableListOf<RunResult>()
+            val mutableRunLogs = mutableListOf<String>()
+
+            fun appendRunLog(msg: String) {
+                val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+                val formatted = "[$timeStr] $msg"
+                mutableRunLogs.add(formatted)
+                _liveRunState.value = _liveRunState.value.copy(
+                    runLogs = mutableRunLogs.toList(),
+                    recentSeenTexts = seenTextMemory.getAllEntries()
+                )
+            }
+
+            appendRunLog("Starting batch run for script '${script.name}' (${steps.size} steps)")
 
             for ((pageIndex, pageName) in validPages.withIndex()) {
                 if (!_liveRunState.value.isRunning) break
@@ -701,34 +1092,56 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
                     currentStepNumber = 0,
                     currentStepName = "Starting page: $pageName"
                 )
+                appendRunLog("--- Starting Page ${pageIndex + 1}/${validPages.size}: $pageName ---")
 
                 val pageStartTime = System.currentTimeMillis()
+                var previousStepStartTime = pageStartTime
                 var pageFailed = false
                 var failedStepName: String? = null
                 var errorDetail: String? = null
                 var failureCapturePath: String? = null
+                val pageLogs = mutableListOf<String>()
 
                 for ((stepIndex, rawStep) in steps.withIndex()) {
                     if (!_liveRunState.value.isRunning) break
 
+                    val stepStartTime = System.currentTimeMillis()
                     _liveRunState.value = _liveRunState.value.copy(
                         currentStepNumber = stepIndex + 1,
                         currentStepName = rawStep.summary()
                     )
 
                     try {
-                        stepRunner.executeStep(rawStep, pageName, link, safetyKeywords)
+                        val stepLog = stepRunner.executeStep(
+                            rawStep = rawStep,
+                            pageName = pageName,
+                            link = link,
+                            safetyKeywords = safetyKeywords,
+                            popupRules = popupRules,
+                            previousStepStartTime = previousStepStartTime,
+                            onLog = { logMsg ->
+                                appendRunLog(logMsg)
+                                pageLogs.add(logMsg)
+                            }
+                        )
+                        if (stepLog != null) {
+                            pageLogs.add(stepLog)
+                            appendRunLog("Step ${stepIndex + 1} ($pageName): $stepLog")
+                        }
                     } catch (e: SafetyInterruptionException) {
                         // Needs a person: pause immediately!
                         triggerNeedsPersonAlert(e.matchedKeyword)
+                        appendRunLog("ALERT: Needs a person! Triggered by '${e.matchedKeyword}'")
                         val duration = (System.currentTimeMillis() - pageStartTime) / 1000.0
+                        val logSummary = if (pageLogs.isNotEmpty()) pageLogs.joinToString(", ") else null
                         mutableResults.add(
                             RunResult(
                                 pageName = pageName,
                                 status = RunStatus.PAUSED_NEEDS_PERSON,
                                 failedStepName = rawStep.summary(),
                                 durationSeconds = duration,
-                                errorDetails = e.message
+                                errorDetails = e.message,
+                                logInfo = logSummary
                             )
                         )
                         _liveRunState.value = _liveRunState.value.copy(results = mutableResults.toList())
@@ -738,16 +1151,20 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
                         pageFailed = true
                         failedStepName = rawStep.summary()
                         errorDetail = e.message ?: "Unknown step failure"
+                        appendRunLog("Step ${stepIndex + 1} FAILED on $pageName: $errorDetail")
 
                         // Take screenshot on failure
                         val failureCapture = captureScreenAndStore("Failure on $pageName: $failedStepName")
                         failureCapturePath = failureCapture?.screenshotPath
 
                         break
+                    } finally {
+                        previousStepStartTime = stepStartTime
                     }
                 }
 
                 val duration = (System.currentTimeMillis() - pageStartTime) / 1000.0
+                val logSummary = if (pageLogs.isNotEmpty()) pageLogs.joinToString(", ") else null
                 val result = if (pageFailed) {
                     RunResult(
                         pageName = pageName,
@@ -755,13 +1172,15 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
                         failedStepName = failedStepName,
                         durationSeconds = duration,
                         errorDetails = errorDetail,
-                        capturePath = failureCapturePath
+                        capturePath = failureCapturePath,
+                        logInfo = logSummary
                     )
                 } else {
                     RunResult(
                         pageName = pageName,
                         status = RunStatus.OK,
-                        durationSeconds = duration
+                        durationSeconds = duration,
+                        logInfo = logSummary
                     )
                 }
                 mutableResults.add(result)
@@ -782,6 +1201,7 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
         _liveRunState.value = _liveRunState.value.copy(
             isRunning = false,
             isPausedNeedsPerson = false,
+            isStoppedByPerson = true,
             currentStepName = reason
         )
     }

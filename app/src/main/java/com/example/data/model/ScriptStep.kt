@@ -18,7 +18,12 @@ enum class StepType(val displayName: String, val description: String) {
     HOME("Press Home", "Performs system Home navigation"),
     PICK_NEWEST_VIDEO("Pick Newest Video", "Taps the first media item in gallery/picker"),
     SLEEP("Sleep / Wait", "Pauses execution for specified milliseconds"),
-    SCREENSHOT("Take Screenshot", "Captures screenshot and stores capture")
+    SCREENSHOT("Take Screenshot", "Captures screenshot and stores capture"),
+    SWIPE_UNTIL_TEXT("Swipe Until Text", "Swipes horizontally until target text appears"),
+    WAIT_SEEN("Wait Seen Text", "Waits until text has been seen recently or appears on screen"),
+    SWITCH_PAGE("Switch Page", "Switches active profile/page in Facebook"),
+    REPORT("Report Step", "Reports current execution step to portal"),
+    PREPARE_MODEL_VIDEO("Prepare Model Video", "Copies newest model video to gallery")
 }
 
 data class ScriptStep(
@@ -33,7 +38,8 @@ data class ScriptStep(
     val timeoutMs: Long = 10000L,
     val sleepMs: Long = 1000L,
     val screenshotName: String = "",
-    val packageName: String = ""
+    val packageName: String = "",
+    val maxSwipes: Int = 5
 ) {
     fun summary(): String {
         return when (type) {
@@ -53,6 +59,11 @@ data class ScriptStep(
             StepType.PICK_NEWEST_VIDEO -> "pickNewestVideo()"
             StepType.SLEEP -> "sleep(${sleepMs}ms)"
             StepType.SCREENSHOT -> "screenshot(\"$screenshotName\")"
+            StepType.SWIPE_UNTIL_TEXT -> "swipeUntilText(\"$text\", exact=$exact, yPercent=${yPercent}%, maxSwipes=$maxSwipes)"
+            StepType.WAIT_SEEN -> "waitSeen(\"$text\", ${timeoutMs}ms)"
+            StepType.SWITCH_PAGE -> "switchPage(\"$text\", ${timeoutMs}ms)"
+            StepType.REPORT -> "report(\"$text\")"
+            StepType.PREPARE_MODEL_VIDEO -> "prepareModelVideo()"
         }
     }
 }

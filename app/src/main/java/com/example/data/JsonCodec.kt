@@ -25,6 +25,7 @@ object JsonCodec {
                 put("sleepMs", step.sleepMs)
                 put("screenshotName", step.screenshotName)
                 put("packageName", step.packageName)
+                put("maxSwipes", step.maxSwipes)
             }
             array.put(obj)
         }
@@ -34,35 +35,35 @@ object JsonCodec {
     fun jsonToSteps(json: String?): List<ScriptStep> {
         if (json.isNullOrBlank()) return emptyList()
         val list = mutableListOf<ScriptStep>()
-        try {
-            val array = JSONArray(json)
-            for (i in 0 until array.length()) {
-                val obj = array.getJSONObject(i)
-                val typeName = obj.optString("type", StepType.WAIT_TEXT.name)
-                val type = try {
-                    StepType.valueOf(typeName)
-                } catch (e: Exception) {
-                    StepType.WAIT_TEXT
-                }
-                list.add(
-                    ScriptStep(
-                        id = obj.optString("id", java.util.UUID.randomUUID().toString()),
-                        type = type,
-                        text = obj.optString("text", ""),
-                        exact = obj.optBoolean("exact", false),
-                        index = obj.optInt("index", 0),
-                        viewId = obj.optString("viewId", ""),
-                        xPercent = obj.optDouble("xPercent", 50.0).toFloat(),
-                        yPercent = obj.optDouble("yPercent", 50.0).toFloat(),
-                        timeoutMs = obj.optLong("timeoutMs", 10000L),
-                        sleepMs = obj.optLong("sleepMs", 1000L),
-                        screenshotName = obj.optString("screenshotName", ""),
-                        packageName = obj.optString("packageName", "")
-                    )
-                )
+        val array = JSONArray(json)
+        for (i in 0 until array.length()) {
+            val obj = array.getJSONObject(i)
+            val typeName = obj.optString("type", "")
+            if (typeName.isBlank()) {
+                throw IllegalArgumentException("Missing step type at index $i")
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
+            val type = try {
+                StepType.valueOf(typeName)
+            } catch (e: IllegalArgumentException) {
+                throw IllegalArgumentException("Unknown step $typeName, update the app")
+            }
+            list.add(
+                ScriptStep(
+                    id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                    type = type,
+                    text = obj.optString("text", ""),
+                    exact = obj.optBoolean("exact", false),
+                    index = obj.optInt("index", 0),
+                    viewId = obj.optString("viewId", ""),
+                    xPercent = obj.optDouble("xPercent", 50.0).toFloat(),
+                    yPercent = obj.optDouble("yPercent", 50.0).toFloat(),
+                    timeoutMs = obj.optLong("timeoutMs", if (type == StepType.SWITCH_PAGE) 60000L else 10000L),
+                    sleepMs = obj.optLong("sleepMs", 1000L),
+                    screenshotName = obj.optString("screenshotName", ""),
+                    packageName = obj.optString("packageName", ""),
+                    maxSwipes = obj.optInt("maxSwipes", 5)
+                )
+            )
         }
         return list
     }

@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Security
@@ -61,7 +62,8 @@ fun HomeScreen(
     onNavigateToRun: () -> Unit,
     onNavigateToScripts: () -> Unit,
     onNavigateToCaptures: () -> Unit,
-    onNavigateToSafety: () -> Unit
+    onNavigateToSafety: () -> Unit,
+    onNavigateToPortal: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val isServiceEnabled by viewModel.isServiceEnabled.collectAsState()
@@ -215,6 +217,95 @@ fun HomeScreen(
                     ) {
                         Text("Stop", fontWeight = FontWeight.Bold)
                     }
+                }
+            }
+        }
+
+        // Web Portal Status Card
+        val portalState by viewModel.portalState.collectAsState()
+        Card(
+            onClick = onNavigateToPortal,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("home_portal_card"),
+            colors = CardDefaults.cardColors(containerColor = DarkSurface),
+            shape = RoundedCornerShape(16.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(if (portalState.isRegistered) NeonGreen.copy(alpha = 0.15f) else DarkSurfaceVariant),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Cloud,
+                            contentDescription = "Portal",
+                            tint = if (portalState.isRegistered) NeonGreen else TextSecondary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Web Portal",
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                fontSize = 15.sp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(if (portalState.isRegistered) NeonGreen else AmberWarning)
+                            )
+                        }
+                        Text(
+                            text = if (portalState.isRegistered) {
+                                "${portalState.deviceName ?: "Phone"} • Online"
+                            } else {
+                                "Not registered • Tap to enroll"
+                            },
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
+                        if (portalState.lastHeartbeatTime != null) {
+                            Text(
+                                text = "Last beat: ${portalState.lastHeartbeatTime}",
+                                color = TextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = onNavigateToPortal,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (portalState.isRegistered) DarkSurfaceVariant else NeonGreen
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = if (portalState.isRegistered) "Manage" else "Enroll",
+                        color = if (portalState.isRegistered) TextPrimary else androidx.compose.ui.graphics.Color.Black,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
                 }
             }
         }

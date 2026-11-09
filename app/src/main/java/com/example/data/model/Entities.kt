@@ -34,6 +34,20 @@ data class SafetyRuleEntity(
     val isEnabled: Boolean = true
 )
 
+@Entity(tableName = "popup_rules")
+data class PopupRuleEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val whenISee: String,
+    val tapText: String,
+    val isEnabled: Boolean = true
+)
+
+data class SeenTextEntry(
+    val text: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 enum class RunStatus {
     OK,
     FAILED,
@@ -47,5 +61,6 @@ data class RunResult(
     val failedStepName: String? = null,
     val durationSeconds: Double = 0.0,
     val errorDetails: String? = null,
-    val capturePath: String? = null
+    val capturePath: String? = null,
+    val logInfo: String? = null
 )

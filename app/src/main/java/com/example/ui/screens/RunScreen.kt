@@ -447,6 +447,19 @@ fun RunScreen(
             )
         }
 
+        // Run Log & Seen Texts Console
+        if (liveRunState.runLogs.isNotEmpty() || liveRunState.recentSeenTexts.isNotEmpty()) {
+            RunLogsAndSeenTextsSection(
+                runLogs = liveRunState.runLogs,
+                seenTexts = liveRunState.recentSeenTexts,
+                onCopy = { textToCopy ->
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Story Test Log", textToCopy))
+                    Toast.makeText(context, "Log copied to clipboard", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
     }
 }
@@ -555,6 +568,15 @@ fun ResultsSection(
                                         maxLines = 1
                                     )
                                 }
+                                if (!result.logInfo.isNullOrBlank()) {
+                                    Text(
+                                        text = result.logInfo,
+                                        color = NeonGreen,
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
 
@@ -590,6 +612,120 @@ fun ResultsSection(
                                 color = TextSecondary,
                                 fontSize = 11.sp
                             )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RunLogsAndSeenTextsSection(
+    runLogs: List<String>,
+    seenTexts: List<com.example.data.model.SeenTextEntry>,
+    onCopy: (String) -> Unit
+) {
+    var showSeenTab by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("run_logs_section_card"),
+        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = if (showSeenTab) "Seen Texts Memory" else "Run Log",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                    )
+                    Text(
+                        text = if (showSeenTab) "${seenTexts.size} entries in ring buffer" else "${runLogs.size} log entries",
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+                }
+
+                Row {
+                    OutlinedButton(
+                        onClick = { showSeenTab = !showSeenTab },
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(if (showSeenTab) "Show Steps" else "Show Seen Texts", fontSize = 11.sp)
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    IconButton(onClick = {
+                        val fullText = if (showSeenTab) {
+                            val timeFormat = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.getDefault())
+                            seenTexts.joinToString("\n") { "[${timeFormat.format(java.util.Date(it.timestamp))}] ${it.text}" }
+                        } else {
+                            runLogs.joinToString("\n")
+                        }
+                        onCopy(fullText)
+                    }) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy Log", tint = TextPrimary, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(DarkSurfaceVariant)
+                    .padding(8.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                if (showSeenTab) {
+                    if (seenTexts.isEmpty()) {
+                        Text("No seen texts recorded yet by accessibility events.", color = TextSecondary, fontSize = 12.sp)
+                    } else {
+                        val timeFormat = remember { java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.getDefault()) }
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            seenTexts.asReversed().forEach { entry ->
+                                Text(
+                                    text = "[${timeFormat.format(java.util.Date(entry.timestamp))}] ${entry.text}",
+                                    color = NeonGreen,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    if (runLogs.isEmpty()) {
+                        Text("No log messages yet.", color = TextSecondary, fontSize = 12.sp)
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            runLogs.forEach { logLine ->
+                                val color = when {
+                                    logLine.contains("FAILED") || logLine.contains("ALERT") -> CoralRed
+                                    logLine.contains("Popup closed") -> AmberWarning
+                                    logLine.contains("typeText: paste") || logLine.contains("waitSeen passed") -> NeonGreen
+                                    else -> TextPrimary
+                                }
+                                Text(
+                                    text = logLine,
+                                    color = color,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp
+                                )
+                            }
                         }
                     }
                 }
