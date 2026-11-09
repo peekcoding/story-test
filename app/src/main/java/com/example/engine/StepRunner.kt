@@ -67,10 +67,13 @@ class StepRunner(
 
         when (step.type) {
             StepType.LAUNCH_APP -> {
-                val currentPackage = handler.getRootPackageName()
-                if (currentPackage != null && currentPackage.equals(step.packageName, ignoreCase = true)) {
-                    onLog("App '${step.packageName}' already in front, skipping launch")
-                    return "launchApp: skipped (already foreground)"
+                // Look at every window, not only the active one: the Story Test overlay can be the active window
+                // while Facebook is open underneath. Relaunching would restart Facebook (and on phones with app
+                // clones, ask which Facebook to open).
+                val alreadyOpen = handler.findNodes { n -> (n.packageName ?: "").equals(step.packageName, ignoreCase = true) }.isNotEmpty()
+                if (alreadyOpen) {
+                    onLog("App '${step.packageName}' already open, skipping launch")
+                    return "launchApp: skipped (already open)"
                 }
                 val success = handler.launchApp(step.packageName)
                 if (!success) {
@@ -429,64 +432,110 @@ class StepRunner(
                     d.equals("Dismiss", ignoreCase = true) || t.equals("Dismiss", ignoreCase = true)
                 }
 
-                fun getVisibleProfileRows(): List<ScreenNode> {
-                    return handler.findNodes { n ->
-                        val t = n.text?.trim() ?: ""
-                        val d = n.contentDescription?.trim() ?: ""
-                        t.isNotEmpty() &&
-                            !t.equals("Dismiss", ignoreCase = true) &&
-                            !d.equals("Dismiss", ignoreCase = true) &&
-                            !t.equals("Close", ignoreCase = true) &&
-                            !d.equals("Close", ignoreCase = true) &&
-                            !t.contains("Your profiles & Pages", ignoreCase = true) &&
-                            !d.contains("Your profiles & Pages", ignoreCase = true) &&
-                            !t.contains("View all", ignoreCase = true) &&
-                            !d.contains("View all", ignoreCase = true) &&
-                            !t.contains("See all", ignoreCase = true) &&
-                            !d.contains("See all", ignoreCase = true) &&
-                            !t.contains(", see your profile", ignoreCase = true) &&
-                            !d.contains(", see your profile", ignoreCase = true) &&
-                            !t.equals("Menu", ignoreCase = true) &&
-                            !d.equals("Menu", ignoreCase = true) &&
-                            !t.contains("Search", ignoreCase = true) &&
-                            !d.contains("Search", ignoreCase = true)
-                    }
+                /**
+                 * Profile rows in the switcher sheet and in "Your profiles & Pages" are CLICKABLE nodes whose
+                 * contentDescription is "<Name>" or "<Name>, <n> notifications", with a TEXT child holding the
+                 * name. Only those count as profiles; "200 notifications", "Page" and titles never do.
+                 */
+                val notificationsSuffix = Regex(""",\s*[\d.,]+\+?\s*notifications?.*$""", RegexOption.IGNORE_CASE)
+
+                fun isControlLabel(desc: String): Boolean {
+                    val d = desc.trim()
+                    return d.equals("Dismiss", true) || d.equals("Close", true) || d.equals("Menu", true) ||
+                        d.startsWith("View all", true) || d.startsWith("See all", true) ||
+                        d.startsWith("NavigationBar", true) || d.startsWith("Open profile switcher", true) ||
+                        d.contains("see your profile", true) || d.contains("switch into your", true) ||
+                        d.equals("Create Facebook Page", true) || d.equals("Go to Accounts Center", true)
                 }
 
+                /** Real profile names on screen (normalised), each with the clickable row to tap. */
+                fun visibleProfiles(): List<Pair<String, ScreenNode>> {
+                    return handler.findNodes { n -> n.clickable && !n.contentDescription.isNullOrBlank() }
+                        .mapNotNull { row ->
+                            val desc = row.contentDescription ?: return@mapNotNull null
+                            if (isControlLabel(desc)) return@mapNotNull null
+                            val name = NameMatcher.normalize(desc.replace(notificationsSuffix, ""))
+                            if (name.isEmpty()) return@mapNotNull null
+                            val hasNameText = row.flatten().any { child ->
+                                child !== row && !child.text.isNullOrBlank() && NameMatcher.normalize(child.text!!).equals(name, ignoreCase = true)
+                            }
+                            if (hasNameText) name to row else null
+                        }
+                        .distinctBy { it.first.lowercase() }
+                }
+
+                fun visibleProfileNames(): Set<String> = visibleProfiles().map { it.first.lowercase() }.toSet()
+
+                /** The row to tap for the target page: a profile row whose name matches, or a text node that matches. */
                 fun findTargetRowNode(): ScreenNode? {
-                    return handler.findNodes { n ->
-                        NameMatcher.matches(n.text, targetPage)
-                    }.firstOrNull()
+                    visibleProfiles().firstOrNull { NameMatcher.matches(it.first, targetPage) }?.let { return it.second }
+                    return handler.findNodes { n -> NameMatcher.matches(n.text, targetPage) }.firstOrNull()
                 }
 
-                suspend fun scrollOneStep() {
-                    val beforeNames = getVisibleProfileRows().mapNotNull { it.text?.trim() }.toSet()
-                    val scrolled = handler.scrollListForward()
+                fun isLoading(): Boolean {
+                    return handler.findNodes { n ->
+                        (n.className ?: "").contains("ProgressBar", ignoreCase = true) ||
+                            (n.contentDescription ?: "").contains("Loading", ignoreCase = true) ||
+                            (n.text ?: "").contains("Loading", ignoreCase = true)
+                    }.isNotEmpty()
+                }
+
+                var loadingWaits = 0
+
+                /**
+                 * Scroll the list one step without skipping rows, then wait for new rows (slow internet:
+                 * up to 15 s, or up to 60 s while a loading indicator is shown).
+                 * Returns true when the list actually scrolled (false at the end of the list).
+                 */
+                suspend fun scrollOneStep(): Boolean {
+                    val before = visibleProfileNames()
+                    var scrolled = handler.scrollListForward()
                     if (!scrolled) {
                         handler.performVerticalSwipe(50f, 75f, 40f, 900L)
                     }
-                    waitForCondition(6000L, "rows to change after scroll") {
-                        if (findTargetRowNode() != null) return@waitForCondition true
-                        val currentNames = getVisibleProfileRows().mapNotNull { it.text?.trim() }.toSet()
-                        currentNames.isNotEmpty() && currentNames != beforeNames
+                    val start = System.currentTimeMillis()
+                    var changed = false
+                    var sawLoading = false
+                    while (true) {
+                        if (checkStop()) throw TaskStopRequestedException("Stop requested while scrolling the profile list")
+                        checkSafetyKeywords(safetyKeywords)
+                        checkInternetConnection(onLog, checkStop)
+                        checkAndDismissPopups(popupRules, onLog)
+                        if (findTargetRowNode() != null) return true
+                        val now = visibleProfileNames()
+                        if (now.isNotEmpty() && now != before) {
+                            changed = true
+                            break
+                        }
+                        val elapsed = System.currentTimeMillis() - start
+                        val loading = isLoading()
+                        if (loading && elapsed < 60000L) {
+                            if (!sawLoading) {
+                                sawLoading = true
+                                loadingWaits++
+                                onLog("Waiting for list to load...")
+                            }
+                        } else if (elapsed >= 15000L) {
+                            break
+                        }
+                        delay(300L)
                     }
+                    return scrolled || changed
                 }
 
                 fun findViewAllNode(): ScreenNode? {
                     return handler.findNodes { n ->
                         val t = n.text ?: ""
                         val d = n.contentDescription ?: ""
-                        t.contains("View all", ignoreCase = true) ||
-                            d.contains("View all", ignoreCase = true) ||
-                            t.contains("See all", ignoreCase = true) ||
-                            d.contains("See all", ignoreCase = true)
+                        t.startsWith("View all", ignoreCase = true) || d.startsWith("View all", ignoreCase = true) ||
+                            t.startsWith("See all", ignoreCase = true) || d.startsWith("See all", ignoreCase = true)
+                    }.firstOrNull { it.clickable } ?: handler.findNodes { n ->
+                        (n.text ?: "").startsWith("View all", ignoreCase = true) || (n.contentDescription ?: "").startsWith("View all", ignoreCase = true)
                     }.firstOrNull()
                 }
 
                 val sheetReady = waitForCondition(20000L, "Dismiss button and profile rows in switcher sheet") {
-                    val hasDismiss = handler.findNodes(isDismissPredicate).isNotEmpty()
-                    val hasRows = getVisibleProfileRows().isNotEmpty()
-                    hasDismiss && hasRows
+                    handler.findNodes(isDismissPredicate).isNotEmpty() && visibleProfiles().isNotEmpty()
                 }
                 if (!sheetReady) {
                     failSwitchPage("Switcher sheet not ready after 20s")
@@ -498,30 +547,23 @@ class StepRunner(
                 val allSeenProfileNames = mutableSetOf<String>()
                 var fullListScrolls = 0
 
-                // Record initial profile names visible in sheet
-                for (row in getVisibleProfileRows()) {
-                    row.text?.trim()?.let { allSeenProfileNames.add(NameMatcher.normalize(it)) }
-                }
+                allSeenProfileNames.addAll(visibleProfileNames())
 
-                // 4. Look at the visible rows. If the target is found, go to 8.
+                // 4. Look at the visible rows of the sheet.
                 val initialSheetMatch = findTargetRowNode()
                 if (initialSheetMatch != null) {
                     onLog("Target page row '$targetPage' found immediately in sheet")
                     targetRowNode = initialSheetMatch
                     foundMethodReport = "Found in first list"
                 } else {
-                    // 5. Scroll the sheet one step at a time (up to 4 steps), looking for the target after each step
-                    // (found -> go to 8) and for "View all".
+                    // 5. Scroll the sheet (up to 4 steps) until the target or "View all" shows.
                     var viewAllNode = findViewAllNode()
                     var sheetScrolls = 0
                     while (viewAllNode == null && sheetScrolls < 4) {
-                        if (checkStop()) throw TaskStopRequestedException("Stop requested during sheet scroll")
                         sheetScrolls++
                         onLog("Scrolling sheet step $sheetScrolls/4...")
                         scrollOneStep()
-                        for (row in getVisibleProfileRows()) {
-                            row.text?.trim()?.let { allSeenProfileNames.add(NameMatcher.normalize(it)) }
-                        }
+                        allSeenProfileNames.addAll(visibleProfileNames())
                         val sheetMatch = findTargetRowNode()
                         if (sheetMatch != null) {
                             onLog("Target page row '$targetPage' found after scrolling sheet")
@@ -534,96 +576,74 @@ class StepRunner(
 
                     if (targetRowNode == null && viewAllNode != null) {
                         val rawText = (viewAllNode.text ?: "") + " " + (viewAllNode.contentDescription ?: "")
-                        val bracketRegex = Regex("""\(\s*(\d+)\s*\)""")
-                        bracketRegex.find(rawText)?.groupValues?.get(1)?.toIntOrNull()?.let { count ->
+                        Regex("""\(\s*(\d+)\s*\)""").find(rawText)?.groupValues?.get(1)?.toIntOrNull()?.let { count ->
                             viewAllExpectedCount = count
-                            onLog("Parsed 'View all' expected count: $count")
+                            onLog("'View all' says there are $count profiles")
                         }
                         onLog("Tapping 'View all'...")
                         handler.performTapNode(viewAllNode)
 
-                        // Wait up to 20 s for "Your profiles & Pages" with at least one profile row
-                        val fullListReady = waitForCondition(20000L, "Your profiles & Pages with at least one row") {
+                        // Wait up to 30 s for "Your profiles & Pages" with at least one profile row (slow internet).
+                        val fullListReady = waitForCondition(30000L, "Your profiles & Pages with at least one row") {
                             val hasTitle = handler.findNodes { n ->
-                                val t = n.text ?: ""
-                                val d = n.contentDescription ?: ""
-                                t.contains("Your profiles & Pages", ignoreCase = true) ||
-                                    d.contains("Your profiles & Pages", ignoreCase = true)
+                                (n.text ?: "").contains("Your profiles & Pages", ignoreCase = true) ||
+                                    (n.contentDescription ?: "").contains("Your profiles & Pages", ignoreCase = true)
                             }.isNotEmpty()
-                            val hasRows = getVisibleProfileRows().isNotEmpty()
-                            hasTitle && hasRows
+                            hasTitle && visibleProfiles().isNotEmpty()
                         }
                         if (!fullListReady) {
-                            failSwitchPage("Full list screen 'Your profiles & Pages' not ready after 20s")
+                            failSwitchPage("Full list screen 'Your profiles & Pages' not ready after 30s")
                         }
 
-                        // 6. In the full list:
-                        // Record currently visible rows
-                        for (row in getVisibleProfileRows()) {
-                            row.text?.trim()?.let { allSeenProfileNames.add(NameMatcher.normalize(it)) }
-                        }
-
+                        // 6. Full list: look, scroll one step, look again, until found or the real end of the list.
+                        allSeenProfileNames.addAll(visibleProfileNames())
                         val initialFullListMatch = findTargetRowNode()
                         if (initialFullListMatch != null) {
                             targetRowNode = initialFullListMatch
                             foundMethodReport = "Found after View all, 0 scrolls"
-                            onLog("Target page row '$targetPage' found immediately in full list: $foundMethodReport")
                         } else {
-                            var consecutiveStepsNoNewNames = 0
-
-                            while (fullListScrolls < 60) {
-                                if (checkStop()) {
-                                    throw TaskStopRequestedException("Stop requested during full list scroll")
-                                }
-                                checkSafetyKeywords(safetyKeywords)
-                                checkInternetConnection(onLog, checkStop)
-                                checkAndDismissPopups(popupRules, onLog)
-
-                                if (viewAllExpectedCount != null && allSeenProfileNames.size >= viewAllExpectedCount!!) {
-                                    onLog("Seen all $viewAllExpectedCount profiles. Stopping list scroll.")
-                                    break
-                                }
-
+                            var stepsWithoutNewNames = 0
+                            while (fullListScrolls < 80) {
                                 fullListScrolls++
-                                onLog("Scrolling full list step $fullListScrolls/60 (seen ${allSeenProfileNames.size} profiles so far)...")
                                 val prevSize = allSeenProfileNames.size
-
-                                scrollOneStep()
-
-                                for (row in getVisibleProfileRows()) {
-                                    row.text?.trim()?.let { allSeenProfileNames.add(NameMatcher.normalize(it)) }
-                                }
+                                val couldScroll = scrollOneStep()
+                                allSeenProfileNames.addAll(visibleProfileNames())
 
                                 val match = findTargetRowNode()
                                 if (match != null) {
                                     targetRowNode = match
                                     foundMethodReport = "Found after View all, $fullListScrolls scrolls"
-                                    onLog("Target page row '$targetPage' found in full list: $foundMethodReport")
                                     break
                                 }
 
-                                if (viewAllExpectedCount != null && allSeenProfileNames.size >= viewAllExpectedCount!!) {
-                                    onLog("Seen all $viewAllExpectedCount profiles ($allSeenProfileNames.size). Stopping list scroll.")
+                                if (allSeenProfileNames.size == prevSize) stepsWithoutNewNames++ else stepsWithoutNewNames = 0
+                                onLog("Full list step $fullListScrolls: ${allSeenProfileNames.size} profiles seen, could scroll=$couldScroll")
+
+                                // End of the list: the list can not scroll further AND no new names came for 4 steps.
+                                if (stepsWithoutNewNames >= 4 && !couldScroll) {
+                                    onLog("Reached the end of the profile list.")
                                     break
                                 }
-
-                                if (allSeenProfileNames.size == prevSize) {
-                                    consecutiveStepsNoNewNames++
-                                    if (consecutiveStepsNoNewNames >= 3) {
-                                        onLog("Full profile list reached end (3 scroll steps in a row with no new names).")
-                                        break
-                                    }
-                                } else {
-                                    consecutiveStepsNoNewNames = 0
+                                // Safety: nothing new for 8 steps in a row, whatever the scroll result.
+                                if (stepsWithoutNewNames >= 8) {
+                                    onLog("No new profiles for 8 steps, stopping.")
+                                    break
                                 }
                             }
                         }
                     }
                 }
 
+                if (foundMethodReport != null) {
+                    val total = viewAllExpectedCount?.let { " of $it" } ?: ""
+                    val loadNote = if (loadingWaits > 0) ", waited for loading $loadingWaits times" else ""
+                    foundMethodReport = "$foundMethodReport (${allSeenProfileNames.size}$total profiles seen$loadNote)"
+                    onLog("Target page row '$targetPage': $foundMethodReport")
+                }
+
                 // 7. Not found
                 if (targetRowNode == null) {
-                    val notFoundMsg = "Not found after $fullListScrolls scrolls"
+                    val notFoundMsg = "Not found after $fullListScrolls scrolls (${allSeenProfileNames.size} profiles seen)"
                     onLog(notFoundMsg)
                     reportEvent("SWITCH_PAGE", notFoundMsg)
 

@@ -602,8 +602,8 @@ class StoryTestViewModel(application: Application) : AndroidViewModel(applicatio
             StoryTestService.updateLiveTaskState(null, null, false)
 
             delay(3000L)
-            service.dispatchGlobal(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
-            delay(1000L)
+            // Stay inside Facebook for the next page: go back to Facebook's Home screen, never to the phone's home.
+            returnToFacebookHome(service)
 
             // Refresh from /work after every task
             portalRepository.getWork()
@@ -612,6 +612,21 @@ class StoryTestViewModel(application: Application) : AndroidViewModel(applicatio
         StoryTestService.updateLiveTaskState(null, null, false)
         portalRepository.setPostingWorkState(false, "Finished processing Slot 1 tasks")
         portalRepository.getWork()
+    }
+
+    /**
+     * Press Back (at most 6 times) until Facebook's Home screen is showing. Does nothing when it already is,
+     * so Facebook is never closed by an extra Back.
+     */
+    private suspend fun returnToFacebookHome(service: StoryTestService) {
+        repeat(6) {
+            val onHome = service.findNodes { n ->
+                (n.contentDescription ?: "").startsWith("Home, tab", ignoreCase = true)
+            }.isNotEmpty()
+            if (onHome) return
+            service.dispatchGlobal(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+            delay(700L)
+        }
     }
 
     private fun getBatteryStatus(): Pair<Int, Boolean> {
