@@ -53,6 +53,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -732,6 +733,35 @@ fun PortalScreen(
                                 fontWeight = FontWeight.Medium
                             )
                         }
+                    }
+
+                    // Automatic posting: the phone starts by itself when the portal has pages for it
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Post automatically", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(
+                                text = "Starts by itself when a campaign starts in the portal, also at its scheduled time.",
+                                color = TextSecondary,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Switch(
+                            checked = portalState.autoPostEnabled,
+                            onCheckedChange = { viewModel.setAutoPost(it) },
+                            modifier = Modifier.testTag("auto_post_switch")
+                        )
+                    }
+
+                    if (portalState.pendingReports > 0) {
+                        Text(
+                            text = "${portalState.pendingReports} report(s) waiting for internet; they are sent automatically.",
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
                     }
 
                     // Action buttons: Check for work & Post all now

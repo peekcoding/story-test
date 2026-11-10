@@ -17,6 +17,10 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import org.json.JSONArray
+import org.json.JSONObject
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.asRequestBody
@@ -43,7 +47,9 @@ data class PortalDeviceState(
     val lastWorkCheckTime: String? = null,
     val isLoadingWork: Boolean = false,
     val isPostingWork: Boolean = false,
-    val postingStatusMessage: String? = null
+    val postingStatusMessage: String? = null,
+    val autoPostEnabled: Boolean = true,
+    val pendingReports: Int = 0
 )
 
 class PortalRepository(private val context: Context) {
@@ -91,7 +97,12 @@ class PortalRepository(private val context: Context) {
     private var currentApi: PortalApi? = null
     private var currentPortalUrl: String? = null
 
-    private fun loadInitialState(): PortalDeviceState {
+    private fun loadInitialState(): PortalDeviceState = loadBaseState().copy(
+        autoPostEnabled = generalPrefs.getBoolean("auto_post_enabled", true),
+        pendingReports = readOutbox().length(),
+    )
+
+    private fun loadBaseState(): PortalDeviceState {
         val portalAddress = generalPrefs.getString("portal_address", "https://manage.menumeet.com")
             ?: "https://manage.menumeet.com"
         val token = securePrefs.getString("token", null)
@@ -301,6 +312,7 @@ class PortalRepository(private val context: Context) {
             when (response.code()) {
                 200 -> {
                     val body = response.body()
+                    rememberPortalClock(body?.serverTime)
                     val serverTime = body?.serverTime ?: java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
                     generalPrefs.edit().putString("last_heartbeat", serverTime).apply()
 
@@ -318,6 +330,7 @@ class PortalRepository(private val context: Context) {
                         deviceName = updatedName,
                         lastError = null
                     )
+                    flushOutbox()
                     HeartbeatResult.Success(body ?: HeartbeatSuccessResponse(true, updatedName, serverTime))
                 }
                 401 -> {
@@ -422,6 +435,7 @@ class PortalRepository(private val context: Context) {
             return com.example.portal.model.GetWorkResult.Unauthorized
         }
 
+        flushOutbox()
         _deviceState.value = _deviceState.value.copy(isLoadingWork = true)
 
         val api = try {
@@ -442,6 +456,7 @@ class PortalRepository(private val context: Context) {
                     val nowStr = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
                     
                     if (body != null) {
+                        rememberPortalClock(body.serverTime)
                         body.script?.let { scriptPayload ->
                             // Save script & version to SharedPreferences
                             val stepsJson = try {
@@ -564,7 +579,17 @@ class PortalRepository(private val context: Context) {
             )
         )
 
+        if (outboxSize() > 0) {
+            // Keep the order: earlier reports are still waiting to be sent.
+            enqueue("events", taskUuid, moshi.adapter(com.example.portal.model.ReportEventsRequest::class.java).toJson(req))
+            flushOutbox()
+            return isStopRequested()
+        }
+
         val res = callWithRetry { api.sendTaskEvents("Bearer $token", taskUuid, req) }
+        if (res == null || res.code() >= 500) {
+            enqueue("events", taskUuid, moshi.adapter(com.example.portal.model.ReportEventsRequest::class.java).toJson(req))
+        }
         val body = res?.body()
         val shouldStop = body?.stop == true
         if (shouldStop) {
@@ -597,7 +622,16 @@ class PortalRepository(private val context: Context) {
             at = nowIso
         )
 
-        callWithRetry { api.finishTask("Bearer $token", taskUuid, req) }
+        val json = moshi.adapter(com.example.portal.model.FinishTaskRequest::class.java).toJson(req)
+        if (outboxSize() > 0) {
+            enqueue("finish", taskUuid, json)
+            flushOutbox()
+            return
+        }
+        val res = callWithRetry { api.finishTask("Bearer $token", taskUuid, req) }
+        if (res == null || res.code() >= 500) {
+            enqueue("finish", taskUuid, json)
+        }
     }
 
     suspend fun uploadTaskScreenshot(taskUuid: String, file: java.io.File) {
@@ -629,6 +663,109 @@ class PortalRepository(private val context: Context) {
             slot.copy(tasks = updatedTasks)
         }
         _deviceState.value = _deviceState.value.copy(workSlots = updatedSlots)
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Portal clock: scheduled campaigns start by the portal's time, so a wrong phone clock does not matter.
+    // ---------------------------------------------------------------------------------------------
+
+    @Volatile
+    private var portalClockOffsetMs: Long = generalPrefs.getLong("portal_clock_offset_ms", 0L)
+
+    private fun rememberPortalClock(serverTime: String?) {
+        val serverMs = PortalTime.parseMillis(serverTime) ?: return
+        portalClockOffsetMs = serverMs - System.currentTimeMillis()
+        generalPrefs.edit().putLong("portal_clock_offset_ms", portalClockOffsetMs).apply()
+    }
+
+    /** The portal's current time in milliseconds. */
+    fun portalNowMillis(): Long = System.currentTimeMillis() + portalClockOffsetMs
+
+    // ---------------------------------------------------------------------------------------------
+    // Automatic posting switch
+    // ---------------------------------------------------------------------------------------------
+
+    fun isAutoPostEnabled(): Boolean = _deviceState.value.autoPostEnabled
+
+    fun setAutoPostEnabled(enabled: Boolean) {
+        generalPrefs.edit().putBoolean("auto_post_enabled", enabled).apply()
+        _deviceState.value = _deviceState.value.copy(autoPostEnabled = enabled)
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Outbox: step reports and results that could not be sent (no internet) are kept, in order, and sent
+    // as soon as the portal answers again. A result is never lost.
+    // ---------------------------------------------------------------------------------------------
+
+    private val outboxLock = Mutex()
+
+    private fun readOutbox(): JSONArray = try {
+        JSONArray(generalPrefs.getString("outbox", "[]") ?: "[]")
+    } catch (e: Exception) {
+        JSONArray()
+    }
+
+    private fun writeOutbox(items: JSONArray) {
+        generalPrefs.edit().putString("outbox", items.toString()).apply()
+        _deviceState.value = _deviceState.value.copy(pendingReports = items.length())
+    }
+
+    fun outboxSize(): Int = readOutbox().length()
+
+    private fun enqueue(kind: String, taskUuid: String, bodyJson: String) {
+        synchronized(this) {
+            val items = readOutbox()
+            if (items.length() >= 500) items.remove(0)
+            items.put(JSONObject().put("kind", kind).put("task", taskUuid).put("body", bodyJson))
+            writeOutbox(items)
+        }
+    }
+
+    /**
+     * Send waiting reports in order. Stops at the first one that can not be delivered yet (no internet or
+     * portal error) and keeps it and the rest. Answers like 409 or 404 mean the portal no longer needs it.
+     */
+    suspend fun flushOutbox() {
+        if (outboxSize() == 0) return
+        val token = getSavedToken() ?: return
+        val api = try { getApi(_deviceState.value.portalAddress) } catch (e: Exception) { return }
+
+        outboxLock.withLock {
+            while (true) {
+                val items = readOutbox()
+                if (items.length() == 0) return
+                val item = items.getJSONObject(0)
+                val task = item.getString("task")
+                val body = item.getString("body")
+
+                val code = try {
+                    when (item.getString("kind")) {
+                        "finish" -> {
+                            val req = moshi.adapter(com.example.portal.model.FinishTaskRequest::class.java).fromJson(body)
+                            if (req == null) 422 else api.finishTask("Bearer $token", task, req).code()
+                        }
+                        else -> {
+                            val req = moshi.adapter(com.example.portal.model.ReportEventsRequest::class.java).fromJson(body)
+                            if (req == null) 422 else api.sendTaskEvents("Bearer $token", task, req).code()
+                        }
+                    }
+                } catch (e: Exception) {
+                    -1 // still no internet
+                }
+
+                if (code == 401) {
+                    signOut("This phone is not registered. Register it again with a new code.")
+                    return
+                }
+                if (code == -1 || code >= 500) return
+
+                synchronized(this) {
+                    val current = readOutbox()
+                    if (current.length() > 0) current.remove(0)
+                    writeOutbox(current)
+                }
+            }
+        }
     }
 
     fun setPostingWorkState(isPosting: Boolean, message: String? = null) {

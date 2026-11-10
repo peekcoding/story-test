@@ -68,6 +68,7 @@ class PortalService : Service() {
 
         startForeground(NOTIFICATION_ID, buildNotification())
         startHeartbeatLoop()
+        startAutoPostLoop()
         startVideoReportingLoop()
         registerMediaObserver()
 
@@ -107,6 +108,42 @@ class PortalService : Service() {
                 // Heartbeat interval: 10s while running a task, 30s when idle
                 val delayMs = if (isRunning) 10_000L else 30_000L
                 delay(delayMs)
+            }
+        }
+    }
+
+    private var autoPostJob: Job? = null
+
+    /**
+     * Starts posting by itself when the portal has pages for this phone that may start now (campaign started,
+     * or its scheduled time reached by the portal's clock). Checks every 20 seconds while idle, and wakes up
+     * exactly at the next scheduled start. Does nothing while a run is going or when "Post automatically" is off.
+     */
+    private fun startAutoPostLoop() {
+        autoPostJob?.cancel()
+        autoPostJob = serviceScope.launch {
+            delay(5_000L)
+            while (isActive) {
+                var waitMs = 20_000L
+                val runner = (application as StoryTestApp).workRunner
+                if (portalRepository.isRegistered() && portalRepository.isAutoPostEnabled() && !runner.isRunning &&
+                    StoryTestService.serviceInstance.value != null
+                ) {
+                    val result = portalRepository.getWork()
+                    if (result is com.example.portal.model.GetWorkResult.Success) {
+                        val nowMs = portalRepository.portalNowMillis()
+                        val slot1Tasks = result.response.slots.filter { it.slotNumber == 1 }.flatMap { it.tasks }
+                        val startsAt = slot1Tasks.map { PortalTime.parseMillis(it.startsAt) }
+                        if (startsAt.any { it == null || it <= nowMs }) {
+                            runner.start("auto")
+                        } else {
+                            startsAt.filterNotNull().minOrNull()?.let { next ->
+                                waitMs = (next - nowMs + 1_000L).coerceIn(1_000L, 20_000L)
+                            }
+                        }
+                    }
+                }
+                delay(waitMs)
             }
         }
     }

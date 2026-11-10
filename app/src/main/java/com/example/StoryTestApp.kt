@@ -15,11 +15,16 @@ class StoryTestApp : Application() {
     lateinit var portalRepository: com.example.portal.PortalRepository
         private set
 
+    /** Posts the portal's work, from the button or automatically from PortalService. */
+    lateinit var workRunner: com.example.portal.WorkRunner
+        private set
+
     override fun onCreate() {
         super.onCreate()
         val db = AppDatabase.getInstance(this)
         repository = StoryTestRepository(db)
         portalRepository = com.example.portal.PortalRepository(this)
+        workRunner = com.example.portal.WorkRunner(repository, portalRepository)
 
         CoroutineScope(Dispatchers.IO).launch {
             repository.seedDefaultsIfEmpty()
