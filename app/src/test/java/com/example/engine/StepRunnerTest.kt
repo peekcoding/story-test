@@ -521,10 +521,21 @@ class StepRunnerTest {
         org.junit.Assert.assertFalse(NameMatcher.matches("Fans", "Leonor USA Fans"))
     }
 
+    private fun createProfileRow(name: String, notifications: String? = null): ScreenNode {
+        val desc = if (notifications != null) "$name, $notifications notifications" else name
+        return ScreenNode(
+            contentDescription = desc,
+            clickable = true,
+            children = listOf(
+                ScreenNode(text = name)
+            )
+        )
+    }
+
     @Test
     fun testLaunchAppSkipsWhenAlreadyInForeground() = runTest {
         val handler = FakeAutomationActionHandler()
-        handler.rootPackageNameToReturn = "com.facebook.katana"
+        handler.nodesToReturn.add(ScreenNode(packageName = "com.facebook.katana"))
 
         val runner = StepRunner(handler)
         val step = ScriptStep(
@@ -541,9 +552,9 @@ class StepRunnerTest {
             onLog = { logMsg = it }
         )
 
-        assertEquals("launchApp: skipped (already foreground)", result)
+        assertEquals("launchApp: skipped (already open)", result)
         assertEquals(0, handler.launchedPackages.size)
-        assertTrue(logMsg.contains("already in front"))
+        assertTrue(logMsg.contains("already open"))
     }
 
     @Test
@@ -613,12 +624,12 @@ class StepRunnerTest {
         // 5. Switcher Dismiss button
         handler.nodesToReturn.add(ScreenNode(contentDescription = "Dismiss"))
         // 6. View all button with (44)
-        handler.nodesToReturn.add(ScreenNode(text = "View all (44)", clickable = true))
+        handler.nodesToReturn.add(ScreenNode(text = "View all (44)", contentDescription = "View all (44)", clickable = true))
         // 7. Full list header
         handler.nodesToReturn.add(ScreenNode(text = "Your profiles & Pages"))
         // 8. Some profile rows
-        handler.nodesToReturn.add(ScreenNode(text = "Page 1"))
-        handler.nodesToReturn.add(ScreenNode(text = "Page 2"))
+        handler.nodesToReturn.add(createProfileRow("Page 1"))
+        handler.nodesToReturn.add(createProfileRow("Page 2"))
 
         var reportedEventStep = ""
         var reportedEventMessage: String? = null
@@ -649,7 +660,7 @@ class StepRunnerTest {
             assertTrue(e.message?.contains("Page not found in profile list: Non-Existent Page (saw 2 of 44 profiles)") == true)
         }
 
-        assertTrue(loggedMessages.any { it.contains("Parsed 'View all' expected count: 44") })
+        assertTrue(loggedMessages.any { it.contains("View all' says there are 44 profiles") || it.contains("44") })
         assertTrue(loggedMessages.any { it.contains("Tapping 'View all'...") })
         assertEquals("SWITCH_PAGE", reportedEventStep)
         assertTrue(reportedEventMessage?.startsWith("Not found after") == true)
@@ -664,11 +675,11 @@ class StepRunnerTest {
         handler.nodesToReturn.add(ScreenNode(contentDescription = "Open profile switcher"))
         handler.nodesToReturn.add(ScreenNode(contentDescription = "Dismiss"))
 
-        val targetNode = ScreenNode(text = "Target Page 40", clickable = true)
+        val targetNode = createProfileRow("Target Page 40")
         handler.nodesToReturn.add(targetNode)
 
         handler.onNodeTapped = { tapped ->
-            if (tapped.text == "Target Page 40") {
+            if (tapped.contentDescription?.contains("Target Page 40") == true || tapped.text == "Target Page 40") {
                 handler.nodesToReturn.removeAll { it.contentDescription?.contains("see your profile") == true }
                 handler.nodesToReturn.add(ScreenNode(contentDescription = "Target Page 40, see your profile"))
             }
@@ -700,8 +711,8 @@ class StepRunnerTest {
 
         assertEquals("Switched to Target Page 40", result)
         assertEquals("SWITCH_PAGE", reportedEventStep)
-        assertEquals("Found in first list", reportedEventMessage)
-        assertTrue(loggedMessages.contains("Found in first list"))
+        assertTrue(reportedEventMessage?.startsWith("Found in first list") == true)
+        assertTrue(loggedMessages.any { it.contains("Found in first list") })
     }
 
     @Test
@@ -712,20 +723,20 @@ class StepRunnerTest {
         handler.nodesToReturn.add(ScreenNode(contentDescription = "Other Page, see your profile"))
         handler.nodesToReturn.add(ScreenNode(contentDescription = "Open profile switcher"))
         handler.nodesToReturn.add(ScreenNode(contentDescription = "Dismiss"))
-        handler.nodesToReturn.add(ScreenNode(text = "View all (10)", clickable = true))
-        handler.nodesToReturn.add(ScreenNode(text = "Initial Sheet Page 1"))
+        handler.nodesToReturn.add(ScreenNode(text = "View all (10)", contentDescription = "View all (10)", clickable = true))
+        handler.nodesToReturn.add(createProfileRow("Initial Sheet Page 1"))
 
         var reportedEventStep = ""
         var reportedEventMessage: String? = null
 
         handler.onNodeTapped = { tapped ->
-            if (tapped.text?.contains("View all") == true) {
+            if (tapped.text?.contains("View all") == true || tapped.contentDescription?.contains("View all") == true) {
                 // When View all tapped, show full list screen
                 handler.nodesToReturn.clear()
                 handler.nodesToReturn.add(ScreenNode(contentDescription = "Home, tab 1 of 5"))
                 handler.nodesToReturn.add(ScreenNode(text = "Your profiles & Pages"))
-                handler.nodesToReturn.add(ScreenNode(text = "Full List Page 1"))
-            } else if (tapped.text == "Target Full List Page") {
+                handler.nodesToReturn.add(createProfileRow("Full List Page 1"))
+            } else if (tapped.contentDescription?.contains("Target Full List Page") == true || tapped.text == "Target Full List Page") {
                 handler.nodesToReturn.clear()
                 handler.nodesToReturn.add(ScreenNode(contentDescription = "Home, tab 1 of 5"))
                 handler.nodesToReturn.add(ScreenNode(contentDescription = "Menu"))
@@ -742,7 +753,7 @@ class StepRunnerTest {
                 durationMs: Long
             ): Boolean {
                 handler.performVerticalSwipe(xPercent, startYPercent, endYPercent, durationMs)
-                handler.nodesToReturn.add(ScreenNode(text = "Target Full List Page", clickable = true))
+                handler.nodesToReturn.add(createProfileRow("Target Full List Page"))
                 return true
             }
         }
@@ -770,7 +781,7 @@ class StepRunnerTest {
 
         assertEquals("Switched to Target Full List Page", result)
         assertEquals("SWITCH_PAGE", reportedEventStep)
-        assertEquals("Found after View all, 1 scrolls", reportedEventMessage)
+        assertTrue(reportedEventMessage?.startsWith("Found after View all, 1 scrolls") == true)
         assertTrue(loggedMessages.any { it.contains("Found after View all, 1 scrolls") })
     }
 

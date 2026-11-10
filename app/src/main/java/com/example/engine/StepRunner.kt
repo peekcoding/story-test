@@ -496,6 +496,7 @@ class StepRunner(
                     val start = System.currentTimeMillis()
                     var changed = false
                     var sawLoading = false
+                    var loops = 0
                     while (true) {
                         if (checkStop()) throw TaskStopRequestedException("Stop requested while scrolling the profile list")
                         checkSafetyKeywords(safetyKeywords)
@@ -507,15 +508,16 @@ class StepRunner(
                             changed = true
                             break
                         }
+                        loops++
                         val elapsed = System.currentTimeMillis() - start
                         val loading = isLoading()
-                        if (loading && elapsed < 60000L) {
+                        if (loading && (elapsed < 60000L && loops < 200)) {
                             if (!sawLoading) {
                                 sawLoading = true
                                 loadingWaits++
                                 onLog("Waiting for list to load...")
                             }
-                        } else if (elapsed >= 15000L) {
+                        } else if (elapsed >= 15000L || loops >= 50) {
                             break
                         }
                         delay(300L)
