@@ -756,6 +756,29 @@ fun PortalScreen(
                         )
                     }
 
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Accounts are in Multi Space", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(
+                                text = if (portalState.useMultiSpace)
+                                    "Each slot in the portal is a Multi Space copy number (1 = copy 1). All accounts are posted, one after another."
+                                else
+                                    "Only slot 1 is posted, in the Facebook app that is open.",
+                                color = TextSecondary,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Switch(
+                            checked = portalState.useMultiSpace,
+                            onCheckedChange = { viewModel.setUseMultiSpace(it) },
+                            modifier = Modifier.testTag("multi_space_switch")
+                        )
+                    }
+
                     if (portalState.pendingReports > 0) {
                         Text(
                             text = "${portalState.pendingReports} report(s) waiting for internet; they are sent automatically.",

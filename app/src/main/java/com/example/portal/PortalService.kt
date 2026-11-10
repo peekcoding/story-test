@@ -132,8 +132,10 @@ class PortalService : Service() {
                     val result = portalRepository.getWork()
                     if (result is com.example.portal.model.GetWorkResult.Success) {
                         val nowMs = portalRepository.portalNowMillis()
-                        val slot1Tasks = result.response.slots.filter { it.slotNumber == 1 }.flatMap { it.tasks }
-                        val startsAt = slot1Tasks.map { PortalTime.parseMillis(it.startsAt) }
+                        val postable = result.response.slots
+                            .filter { portalRepository.useMultiSpace() || it.slotNumber == 1 }
+                            .flatMap { it.tasks }
+                        val startsAt = postable.map { PortalTime.parseMillis(it.startsAt) }
                         if (startsAt.any { it == null || it <= nowMs }) {
                             runner.start("auto")
                         } else {

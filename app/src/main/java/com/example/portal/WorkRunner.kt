@@ -23,6 +23,10 @@ class WorkRunner(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var job: Job? = null
+    private val multiSpace = MultiSpaceOpener()
+
+    /** Accounts that could not be opened are left alone for a while, so a broken one is not retried every 20 s. */
+    private val slotCooldownUntil = mutableMapOf<Int, Long>()
 
     val isRunning: Boolean get() = job?.isActive == true
 
@@ -40,7 +44,7 @@ class WorkRunner(
         job = scope.launch {
             try {
                 portalRepository.setPostingWorkState(true, if (reason == "auto") "Started automatically" else "Starting...")
-                runSlot1Work(service)
+                runAllWork(service)
             } finally {
                 StoryTestService.updateLiveTaskState(null, null, false)
                 if (portalRepository.deviceState.value.isPostingWork) {
@@ -57,7 +61,11 @@ class WorkRunner(
         portalRepository.setPostingWorkState(false, message)
     }
 
-    private suspend fun runSlot1Work(service: StoryTestService) {
+    private suspend fun runAllWork(service: StoryTestService) {
+        val useMultiSpace = portalRepository.useMultiSpace()
+        // The Multi Space account (slot) whose Facebook is open right now; null = none yet.
+        var openSlot: Int? = null
+
         portalRepository.setPostingWorkState(true, "Refreshing work...")
 
         // Initial fetch to get latest tasks and script
@@ -81,20 +89,25 @@ class WorkRunner(
         while (currentCoroutineContext().isActive) {
             // 5. Before starting each next task, call GET /api/device/work to refresh task list
             portalRepository.getWork()
-            val allSlots = portalRepository.deviceState.value.workSlots
-            val slot1 = allSlots.find { it.slotNumber == 1 }
+            val allSlots = portalRepository.deviceState.value.workSlots.sortedBy { it.slotNumber }
 
-            // Non-slot 1 tasks: mark them skipped per requirements
-            for (slot in allSlots) {
-                if (slot.slotNumber != 1) {
-                    for (task in slot.tasks) {
-                        portalRepository.updateTaskLocalStatus(task.uuid, "SKIPPED", "Slot ${slot.slotNumber} is not set up in the app yet")
+            // With Multi Space every account (slot) is posted, one account at a time. Without it only slot 1,
+            // the normal Facebook app, can be posted.
+            if (!useMultiSpace) {
+                for (slot in allSlots) {
+                    if (slot.slotNumber != 1) {
+                        for (task in slot.tasks) {
+                            portalRepository.updateTaskLocalStatus(task.uuid, "SKIPPED", "Slot ${slot.slotNumber} needs Multi Space (turn it on in the app)")
+                        }
                     }
                 }
             }
-
-            val slot1Tasks = slot1?.tasks ?: emptyList()
-            if (slot1Tasks.isEmpty()) {
+            val nowForCooldown = System.currentTimeMillis()
+            val postableTasks = allSlots
+                .filter { useMultiSpace || it.slotNumber == 1 }
+                .filter { (slotCooldownUntil[it.slotNumber] ?: 0L) < nowForCooldown }
+                .flatMap { it.tasks }
+            if (postableTasks.isEmpty()) {
                 portalRepository.setPostingWorkState(false, "Nothing to post")
                 StoryTestService.updateLiveTaskState(null, null, false)
                 break
@@ -103,8 +116,8 @@ class WorkRunner(
             // Find the next task that may run now. Scheduled tasks (starts_at in the future, by the portal's clock)
             // are not skipped: they are left for a later run, and the runner reports when the next one starts.
             val portalNowMs = portalRepository.portalNowMillis()
-            val openTasks = slot1Tasks.filter { t -> !finishedTaskUuids.contains(t.uuid) }
-            val task = openTasks.firstOrNull { t ->
+            val openTasks = postableTasks.filter { t -> !finishedTaskUuids.contains(t.uuid) }
+            val task = openTasks.sortedBy { if (it.slotNumber == openSlot) -1 else it.slotNumber }.firstOrNull { t ->
                 val startsAtMs = PortalTime.parseMillis(t.startsAt)
                 startsAtMs == null || startsAtMs <= portalNowMs
             }
@@ -140,6 +153,38 @@ class WorkRunner(
                 continue
             }
 
+            // Open this task's account in Multi Space when another one (or none) is open, or when Facebook is
+            // no longer on its Home screen.
+            if (useMultiSpace && (openSlot != task.slotNumber || !MultiSpaceOpener.isFacebookHome(service))) {
+                portalRepository.setPostingWorkState(true, "Opening account ${task.slotNumber} (${task.accountLabel ?: ""})...")
+                portalRepository.sendReportEvents(task.uuid, "opening_account", "Multi Space account ${task.slotNumber}")
+                StoryTestService.updateLiveTaskState(task.uuid, "opening_account", true)
+                val opened = multiSpace.open(service, task.slotNumber)
+                if (opened !is MultiSpaceOpener.Result.Opened) {
+                    val needsPerson = opened is MultiSpaceOpener.Result.NeedsPerson
+                    val reason = when (opened) {
+                        is MultiSpaceOpener.Result.Failed -> opened.message
+                        is MultiSpaceOpener.Result.NeedsPerson -> opened.message
+                        else -> "Could not open the account"
+                    }
+                    portalRepository.sendTaskFinish(
+                        taskUuid = task.uuid,
+                        result = if (needsPerson) "needs_person" else "failed",
+                        step = "opening_account",
+                        error = reason,
+                        seenTexts = service.getRecentSeenTexts().map { it.text }
+                    )
+                    portalRepository.updateTaskLocalStatus(task.uuid, if (needsPerson) "NEEDS_PERSON" else "FAILED", reason)
+                    finishedTaskUuids.add(task.uuid)
+                    // Leave this account's other pages for 10 minutes and carry on with the next account.
+                    slotCooldownUntil[task.slotNumber] = System.currentTimeMillis() + 10 * 60_000L
+                    openSlot = null
+                    StoryTestService.updateLiveTaskState(null, null, false)
+                    continue
+                }
+                openSlot = task.slotNumber
+            }
+
             // b. Run steps in order
             var taskCancelled = false
             var taskFailed = false
@@ -151,6 +196,9 @@ class WorkRunner(
             var previousStepStartTime = System.currentTimeMillis()
 
             for ((stepIndex, rawStep) in steps.withIndex()) {
+                if (useMultiSpace && rawStep.type == StepType.LAUNCH_APP) {
+                    continue
+                }
                 if (portalRepository.isStopRequested()) {
                     taskCancelled = true
                     errorMsg = "Cancelled in portal"
@@ -275,7 +323,7 @@ class WorkRunner(
         }
 
         StoryTestService.updateLiveTaskState(null, null, false)
-        portalRepository.setPostingWorkState(false, "Finished processing Slot 1 tasks")
+        portalRepository.setPostingWorkState(false, "Finished all pages")
         portalRepository.getWork()
     }
 

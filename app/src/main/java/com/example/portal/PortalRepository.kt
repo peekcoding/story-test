@@ -49,7 +49,8 @@ data class PortalDeviceState(
     val isPostingWork: Boolean = false,
     val postingStatusMessage: String? = null,
     val autoPostEnabled: Boolean = true,
-    val pendingReports: Int = 0
+    val pendingReports: Int = 0,
+    val useMultiSpace: Boolean = true
 )
 
 class PortalRepository(private val context: Context) {
@@ -99,6 +100,7 @@ class PortalRepository(private val context: Context) {
 
     private fun loadInitialState(): PortalDeviceState = loadBaseState().copy(
         autoPostEnabled = generalPrefs.getBoolean("auto_post_enabled", true),
+        useMultiSpace = generalPrefs.getBoolean("use_multi_space", true),
         pendingReports = readOutbox().length(),
     )
 
@@ -686,6 +688,14 @@ class PortalRepository(private val context: Context) {
     // ---------------------------------------------------------------------------------------------
 
     fun isAutoPostEnabled(): Boolean = _deviceState.value.autoPostEnabled
+
+    /** M2: the Facebook accounts (slots) are the numbered copies in Multi Space; the slot is the copy's number. */
+    fun useMultiSpace(): Boolean = _deviceState.value.useMultiSpace
+
+    fun setUseMultiSpace(enabled: Boolean) {
+        generalPrefs.edit().putBoolean("use_multi_space", enabled).apply()
+        _deviceState.value = _deviceState.value.copy(useMultiSpace = enabled)
+    }
 
     fun setAutoPostEnabled(enabled: Boolean) {
         generalPrefs.edit().putBoolean("auto_post_enabled", enabled).apply()

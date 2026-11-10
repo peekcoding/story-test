@@ -373,6 +373,10 @@ class StoryTestViewModel(application: Application) : AndroidViewModel(applicatio
         portalRepository.setAutoPostEnabled(enabled)
     }
 
+    fun setUseMultiSpace(enabled: Boolean) {
+        portalRepository.setUseMultiSpace(enabled)
+    }
+
     private fun getBatteryStatus(): Pair<Int, Boolean> {
         val app = getApplication<Application>()
         val batteryIntent = app.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
