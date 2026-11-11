@@ -68,4 +68,18 @@ interface PortalApi {
         @retrofit2.http.Path("uuid") uuid: String,
         @retrofit2.http.Part screenshot: okhttp3.MultipartBody.Part
     ): Response<okhttp3.ResponseBody>
+
+    @Headers("Accept: application/json")
+    @retrofit2.http.GET("api/device/story-videos")
+    suspend fun getStoryVideos(
+        @Header("Authorization") authHeader: String
+    ): Response<com.example.portal.model.StoryVideosResponse>
+
+    @Headers("Accept: application/json")
+    @POST("api/device/story-videos/{uuid}/downloaded")
+    suspend fun reportStoryVideoDownloaded(
+        @Header("Authorization") authHeader: String,
+        @retrofit2.http.Path("uuid") uuid: String,
+        @Body request: com.example.portal.model.StoryVideoDownloadedRequest
+    ): Response<okhttp3.ResponseBody>
 }

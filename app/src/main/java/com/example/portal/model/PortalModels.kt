@@ -179,3 +179,31 @@ sealed class GetWorkResult {
 }
 
 
+
+/** One story video the portal wants on this phone (D38). */
+@JsonClass(generateAdapter = true)
+data class StoryVideoItem(
+    @Json(name = "uuid") val uuid: String,
+    @Json(name = "model_code") val modelCode: String,
+    @Json(name = "story_date") val storyDate: String,
+    @Json(name = "folder") val folder: String,
+    @Json(name = "file_name") val fileName: String,
+    @Json(name = "size_bytes") val sizeBytes: Long,
+    @Json(name = "sha256") val sha256: String,
+    @Json(name = "download_url") val downloadUrl: String,
+    @Json(name = "downloaded") val downloaded: Boolean = false
+)
+
+@JsonClass(generateAdapter = true)
+data class StoryVideosResponse(
+    @Json(name = "server_time") val serverTime: String? = null,
+    @Json(name = "base_folder") val baseFolder: String? = null,
+    @Json(name = "keep_from") val keepFrom: String? = null,
+    @Json(name = "videos") val videos: List<StoryVideoItem> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class StoryVideoDownloadedRequest(
+    @Json(name = "sha256") val sha256: String? = null,
+    @Json(name = "error") val error: String? = null
+)

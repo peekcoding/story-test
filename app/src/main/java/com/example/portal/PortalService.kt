@@ -70,6 +70,7 @@ class PortalService : Service() {
         startHeartbeatLoop()
         startAutoPostLoop()
         startVideoReportingLoop()
+        startVideoDownloadLoop()
         registerMediaObserver()
 
         return START_STICKY
@@ -165,6 +166,33 @@ class PortalService : Service() {
 
                 // Every 15 minutes (15 * 60 * 1000 = 900_000 ms)
                 delay(15 * 60 * 1000L)
+            }
+        }
+    }
+
+    private var videoDownloadJob: Job? = null
+
+    /**
+     * Downloads the story videos uploaded in the portal into the model folders (D38): every 5 minutes, only while
+     * the phone is not posting. A finished download is picked up by the media observer and reported with /videos.
+     */
+    private fun startVideoDownloadLoop() {
+        videoDownloadJob?.cancel()
+        videoDownloadJob = serviceScope.launch {
+            delay(15_000L)
+            val runner = (application as StoryTestApp).workRunner
+            val downloader = StoryVideoDownloader(applicationContext, portalRepository) { runner.isRunning }
+            while (isActive) {
+                if (!portalRepository.isRegistered()) break
+                if (!runner.isRunning) {
+                    try {
+                        val saved = downloader.syncOnce()
+                        if (saved > 0) portalRepository.scanAndReportVideos()
+                    } catch (e: Exception) {
+                        android.util.Log.w("StoryBot", "Story video sync failed: ${e.message}")
+                    }
+                }
+                delay(5 * 60 * 1000L)
             }
         }
     }

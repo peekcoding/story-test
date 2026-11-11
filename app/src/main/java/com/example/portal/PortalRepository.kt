@@ -173,6 +173,36 @@ class PortalRepository(private val context: Context) {
         return securePrefs.getString("token", null)
     }
 
+    /** The story videos the portal wants on this phone (D38), or null when the portal could not be reached. */
+    suspend fun getStoryVideos(): com.example.portal.model.StoryVideosResponse? {
+        val token = getSavedToken() ?: return null
+        return try {
+            val response = getApi(_deviceState.value.portalAddress).getStoryVideos("Bearer $token")
+            if (response.code() == 401) {
+                signOut("This phone is not registered. Register it again with a new code.")
+                null
+            } else {
+                response.body()
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("StoryBot", "Story videos list failed: ${e.message}")
+            null
+        }
+    }
+
+    /** Tell the portal a story video was saved (its checksum) or could not be downloaded (the error). */
+    suspend fun reportStoryVideoDownloaded(uuid: String, sha256: String?, error: String?): Boolean {
+        val token = getSavedToken() ?: return false
+        return try {
+            getApi(_deviceState.value.portalAddress)
+                .reportStoryVideoDownloaded("Bearer $token", uuid, com.example.portal.model.StoryVideoDownloadedRequest(sha256, error?.take(1900)))
+                .isSuccessful
+        } catch (e: Exception) {
+            android.util.Log.w("StoryBot", "Story video report failed: ${e.message}")
+            false
+        }
+    }
+
     fun isRegistered(): Boolean {
         return !getSavedToken().isNullOrBlank()
     }
