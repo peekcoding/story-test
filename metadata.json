@@ -1,6 +1,6 @@
 {
-  "name": "Story Test",
-  "description": "Automated accessibility test tool for verifying Facebook story flows with link sharing, inspector overlay, and safety checks.",
+  "name": "StoryBot",
+  "description": "Automated hands-free posting assistant for Facebook stories with portal integration, Multi Space and SlotBox support.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

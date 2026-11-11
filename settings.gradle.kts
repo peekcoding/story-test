@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Story Test"
+rootProject.name = "StoryBot"
 
 include(":app")
