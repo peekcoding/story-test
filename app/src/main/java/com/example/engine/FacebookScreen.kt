@@ -15,7 +15,11 @@ import kotlinx.coroutines.delay
  */
 object FacebookScreen {
 
+    /** Really on screen: visible to the user and with a size (hidden bars stay in the tree off screen). */
+    fun isShown(n: ScreenNode): Boolean = n.visible && n.bounds.width > 0 && n.bounds.height > 0 && n.bounds.top >= 0
+
     fun isHomeNode(n: ScreenNode): Boolean {
+        if (!isShown(n)) return false
         val d = n.contentDescription ?: ""
         val t = n.text ?: ""
         return d.equals("Facebook logo", ignoreCase = true) ||
@@ -24,6 +28,7 @@ object FacebookScreen {
     }
 
     fun isMenuNode(n: ScreenNode): Boolean {
+        if (!isShown(n)) return false
         val d = (n.contentDescription ?: "").trim()
         return d.equals("Menu", ignoreCase = true) || d.startsWith("Menu,", ignoreCase = true)
     }

@@ -487,6 +487,7 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
             enabled = node.isEnabled,
             focused = node.isFocused,
             scrollable = node.isScrollable,
+            visible = node.isVisibleToUser,
             bounds = NodeBounds(rect.left, rect.top, rect.right, rect.bottom),
             children = children
         )
@@ -516,6 +517,7 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
     }
 
     override suspend fun performTapNode(node: ScreenNode): Boolean {
+        android.util.Log.i("StoryBot", "tap: desc='${node.contentDescription}' text='${node.text}' visible=${node.visible} bounds=${node.bounds.left},${node.bounds.top},${node.bounds.right},${node.bounds.bottom}")
         val nativeNode = findNativeNode(node)
         if (nativeNode != null) {
             if (nativeNode.isClickable) {
@@ -841,6 +843,7 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
         endYPercent: Float,
         durationMs: Long
     ): Boolean {
+        android.util.Log.i("StoryBot", "swipe: x=$xPercent% from $startYPercent% to $endYPercent% (${if (endYPercent > startYPercent) "finger down = scroll up" else "finger up = scroll down"})")
         val metrics = getDisplayMetrics()
         val x = (xPercent / 100f) * metrics.widthPixels
         val startY = (startYPercent / 100f) * metrics.heightPixels

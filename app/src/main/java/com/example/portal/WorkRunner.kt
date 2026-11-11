@@ -211,6 +211,7 @@ class WorkRunner(
                 val stepStartTime = System.currentTimeMillis()
                 val resolvedStep = com.example.engine.VariableResolver.resolveStep(rawStep, task.pageName, task.link, task.modelCode)
                 val summary = resolvedStep.summary()
+                android.util.Log.i("StoryBot", "[${task.pageName}] step ${stepIndex + 1}/${steps.size}: $summary")
                 StoryTestService.updateLiveTaskState(task.uuid, summary, true)
 
                 if (rawStep.type == StepType.REPORT) {
@@ -233,7 +234,7 @@ class WorkRunner(
                             portalRepository.sendReportEvents(task.uuid, stepName, msg)
                         },
                         isStopRequested = { portalRepository.isStopRequested() },
-                        onLog = { /* log */ }
+                        onLog = { android.util.Log.i("StoryBot", "[${task.pageName}] $it") }
                     )
                 } catch (e: com.example.engine.TaskStopRequestedException) {
                     taskCancelled = true
@@ -245,12 +246,14 @@ class WorkRunner(
                     failedStepSummary = summary
                     errorMsg = "Safety check: ${e.matchedKeyword}"
                     lastException = e
+                    android.util.Log.w("StoryBot", "[${task.pageName}] FAILED at $summary: ${e.message}")
                     break
                 } catch (e: Exception) {
                     taskFailed = true
                     failedStepSummary = summary
                     errorMsg = e.message ?: "Execution error"
                     lastException = e
+                    android.util.Log.w("StoryBot", "[${task.pageName}] FAILED at $summary: ${e.message}")
                     break
                 } finally {
                     previousStepStartTime = stepStartTime

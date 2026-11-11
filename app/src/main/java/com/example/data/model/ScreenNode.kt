@@ -27,6 +27,8 @@ data class ScreenNode(
     val enabled: Boolean = true,
     val focused: Boolean = false,
     val scrollable: Boolean = false,
+    /** Shown on screen (Android's isVisibleToUser). Bars Facebook hid by scrolling are in the tree but not visible. */
+    val visible: Boolean = true,
     val bounds: NodeBounds = NodeBounds(),
     val children: List<ScreenNode> = emptyList()
 ) {
