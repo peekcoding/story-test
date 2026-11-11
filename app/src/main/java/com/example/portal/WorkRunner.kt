@@ -267,7 +267,7 @@ class WorkRunner(
 
                 for (backAttempt in 1..6) {
                     val isHome = service.findNodes { n ->
-                        (n.contentDescription ?: "").startsWith("Home, tab", ignoreCase = true)
+                        com.example.engine.FacebookScreen.isHomeNode(n)
                     }.isNotEmpty()
                     if (isHome) break
                     service.dispatchGlobal(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
@@ -337,7 +337,7 @@ class WorkRunner(
     private suspend fun returnToFacebookHome(service: StoryTestService) {
         repeat(6) {
             val onHome = service.findNodes { n ->
-                (n.contentDescription ?: "").startsWith("Home, tab", ignoreCase = true)
+                com.example.engine.FacebookScreen.isHomeNode(n)
             }.isNotEmpty()
             if (onHome) return
             service.dispatchGlobal(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)

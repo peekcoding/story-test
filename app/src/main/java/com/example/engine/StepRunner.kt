@@ -321,9 +321,7 @@ class StepRunner(
 
                 onLog("Executing SWITCH_PAGE for target: '$targetPage'")
 
-                val isHomePredicate: (ScreenNode) -> Boolean = { n ->
-                    (n.contentDescription ?: "").startsWith("Home, tab", ignoreCase = true)
-                }
+                val isHomePredicate: (ScreenNode) -> Boolean = FacebookScreen::isHomeNode
 
                 // Helper to wait for a condition every 300ms (no fixed sleeps)
                 suspend fun waitForCondition(
@@ -363,7 +361,14 @@ class StepRunner(
                 }
 
                 // 1. Wait up to 30 s for the Home screen (contentDescription starting "Home, tab").
+                var lastReveal = System.currentTimeMillis()
                 val homeReady = waitForCondition(30000L, "Home screen") {
+                    if (handler.findNodes(isHomePredicate).isNotEmpty()) return@waitForCondition true
+                    // The bars may only be hidden because the feed is scrolled: scroll a little down, then up.
+                    if (System.currentTimeMillis() - lastReveal > 4_000L) {
+                        FacebookScreen.revealBars(handler)
+                        lastReveal = System.currentTimeMillis()
+                    }
                     handler.findNodes(isHomePredicate).isNotEmpty()
                 }
                 if (!homeReady) {
@@ -371,22 +376,11 @@ class StepRunner(
                 }
 
                 // 2. Tap "Menu". Wait up to 20 s for ", see your profile". If the active name matches the target: press Back and finish ("Already on <page>").
-                val menuNode = handler.findNodes { n ->
-                    val d = n.contentDescription ?: ""
-                    d.equals("Menu", ignoreCase = true) || d.startsWith("Menu,", ignoreCase = true) || d.startsWith("Menu", ignoreCase = true)
-                }.firstOrNull() ?: run {
-                    val foundMenu = waitForCondition(5000L, "Menu button") {
-                        handler.findNodes { n ->
-                            val d = n.contentDescription ?: ""
-                            d.equals("Menu", ignoreCase = true) || d.startsWith("Menu,", ignoreCase = true) || d.startsWith("Menu", ignoreCase = true)
-                        }.isNotEmpty()
-                    }
-                    if (!foundMenu) failSwitchPage("Menu button not found")
-                    handler.findNodes { n ->
-                        val d = n.contentDescription ?: ""
-                        d.equals("Menu", ignoreCase = true) || d.startsWith("Menu,", ignoreCase = true) || d.startsWith("Menu", ignoreCase = true)
-                    }.first()
-                }
+                // Menu is at the top right ("Menu") or the last bottom tab ("Menu, tab 6 of 6"); both bars hide
+                // when the feed is scrolled, so reveal them if Menu is not visible.
+                val menuNode = FacebookScreen.findMenuRevealing(handler, tries = 3)
+                    ?: failSwitchPage("Menu button not found (looked at the top bar and the bottom tabs)")
+                onLog("Menu found: '${menuNode.contentDescription}'")
                 handler.performTapNode(menuNode)
 
                 var activePage = ""
@@ -708,19 +702,9 @@ class StepRunner(
                 }
 
                 // 9. Check: tap "Menu", wait up to 20 s for ", see your profile", compare with target, press Back.
-                val checkMenu = handler.findNodes { n ->
-                    val d = n.contentDescription ?: ""
-                    d.equals("Menu", ignoreCase = true) || d.startsWith("Menu,", ignoreCase = true) || d.startsWith("Menu", ignoreCase = true)
-                }.firstOrNull() ?: run {
-                    waitForCondition(5000L, "Menu button for verification") {
-                        handler.findNodes { (it.contentDescription ?: "").startsWith("Menu", ignoreCase = true) }.isNotEmpty()
-                    }
-                    handler.findNodes { (it.contentDescription ?: "").startsWith("Menu", ignoreCase = true) }.firstOrNull()
-                }
-
-                if (checkMenu != null) {
-                    handler.performTapNode(checkMenu)
-                }
+                val checkMenu = FacebookScreen.findMenuRevealing(handler, tries = 3)
+                    ?: failSwitchPage("Menu button not found for the check after switching")
+                handler.performTapNode(checkMenu)
 
                 var verifiedActive = ""
                 val checkReady = waitForCondition(20000L, "Active profile for verification") {

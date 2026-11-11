@@ -106,7 +106,7 @@ class MultiSpaceOpener(private val packageName: String = PACKAGE) : AccountOpene
         const val PACKAGE = "com.dualspacepro.multispace"
 
         fun isFacebookHome(service: StoryTestService): Boolean =
-            service.findNodes { (it.contentDescription ?: "").startsWith("Home, tab", ignoreCase = true) }.isNotEmpty()
+            com.example.engine.FacebookScreen.isHome(service)
 
         /** Facebook's log-in screen inside the copy. */
         fun isLoggedOut(service: StoryTestService): Boolean {
