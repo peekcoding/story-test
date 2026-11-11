@@ -373,6 +373,10 @@ class StoryTestViewModel(application: Application) : AndroidViewModel(applicatio
         portalRepository.setAutoPostEnabled(enabled)
     }
 
+    fun setAccountsApp(value: String) {
+        portalRepository.setAccountsApp(value)
+    }
+
     fun setUseMultiSpace(enabled: Boolean) {
         portalRepository.setUseMultiSpace(enabled)
     }

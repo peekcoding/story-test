@@ -13,7 +13,7 @@ import kotlinx.coroutines.delay
  * same as the normal app (Home tab, Menu, Create story) but reports the Multi Space package. Launching Multi
  * Space again brings back the grid. The slot number in the portal is the tile number.
  */
-class MultiSpaceOpener(private val packageName: String = PACKAGE) {
+class MultiSpaceOpener(private val packageName: String = PACKAGE) : AccountOpener {
 
     sealed class Result {
         object Opened : Result()
@@ -23,7 +23,7 @@ class MultiSpaceOpener(private val packageName: String = PACKAGE) {
         data class NeedsPerson(val message: String) : Result()
     }
 
-    suspend fun open(service: StoryTestService, slot: Int, onLog: (String) -> Unit = {}): Result {
+    override suspend fun open(service: StoryTestService, slot: Int, onLog: (String) -> Unit): Result {
         onLog("Opening Multi Space account $slot")
         if (!service.launchApp(packageName)) {
             return Result.Failed("Multi Space is not installed on this phone")

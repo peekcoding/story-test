@@ -24,6 +24,7 @@ class WorkRunner(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var job: Job? = null
     private val multiSpace = MultiSpaceOpener()
+    private val slotBox = SlotBoxOpener()
 
     /** Accounts that could not be opened are left alone for a while, so a broken one is not retried every 20 s. */
     private val slotCooldownUntil = mutableMapOf<Int, Long>()
@@ -63,6 +64,8 @@ class WorkRunner(
 
     private suspend fun runAllWork(service: StoryTestService) {
         val useMultiSpace = portalRepository.useMultiSpace()
+        val accountOpener: AccountOpener = if (portalRepository.accountsApp() == "slotbox") slotBox else multiSpace
+        val accountsAppName = if (portalRepository.accountsApp() == "slotbox") "SlotBox" else "Multi Space"
         // The Multi Space account (slot) whose Facebook is open right now; null = none yet.
         var openSlot: Int? = null
 
@@ -157,9 +160,9 @@ class WorkRunner(
             // no longer on its Home screen.
             if (useMultiSpace && (openSlot != task.slotNumber || !MultiSpaceOpener.isFacebookHome(service))) {
                 portalRepository.setPostingWorkState(true, "Opening account ${task.slotNumber} (${task.accountLabel ?: ""})...")
-                portalRepository.sendReportEvents(task.uuid, "opening_account", "Multi Space account ${task.slotNumber}")
+                portalRepository.sendReportEvents(task.uuid, "opening_account", "$accountsAppName slot ${task.slotNumber}")
                 StoryTestService.updateLiveTaskState(task.uuid, "opening_account", true)
-                val opened = multiSpace.open(service, task.slotNumber)
+                val opened = accountOpener.open(service, task.slotNumber)
                 if (opened !is MultiSpaceOpener.Result.Opened) {
                     val needsPerson = opened is MultiSpaceOpener.Result.NeedsPerson
                     val reason = when (opened) {

@@ -50,7 +50,9 @@ data class PortalDeviceState(
     val postingStatusMessage: String? = null,
     val autoPostEnabled: Boolean = true,
     val pendingReports: Int = 0,
-    val useMultiSpace: Boolean = true
+    val useMultiSpace: Boolean = true,
+    /** Which app holds the Facebook accounts when [useMultiSpace] is on: "slotbox" or "multispace". */
+    val accountsApp: String = "multispace"
 )
 
 class PortalRepository(private val context: Context) {
@@ -101,6 +103,7 @@ class PortalRepository(private val context: Context) {
     private fun loadInitialState(): PortalDeviceState = loadBaseState().copy(
         autoPostEnabled = generalPrefs.getBoolean("auto_post_enabled", true),
         useMultiSpace = generalPrefs.getBoolean("use_multi_space", true),
+        accountsApp = generalPrefs.getString("accounts_app", "multispace") ?: "multispace",
         pendingReports = readOutbox().length(),
     )
 
@@ -691,6 +694,19 @@ class PortalRepository(private val context: Context) {
 
     /** M2: the Facebook accounts (slots) are the numbered copies in Multi Space; the slot is the copy's number. */
     fun useMultiSpace(): Boolean = _deviceState.value.useMultiSpace
+
+    fun accountsApp(): String = _deviceState.value.accountsApp
+
+    /**
+     * Where the Facebook accounts are: "slotbox" (ours), "multispace", or "off" (only slot 1, in the Facebook
+     * app that is open).
+     */
+    fun setAccountsApp(value: String) {
+        val app = if (value == "slotbox") "slotbox" else "multispace"
+        val on = value != "off"
+        generalPrefs.edit().putBoolean("use_multi_space", on).putString("accounts_app", app).apply()
+        _deviceState.value = _deviceState.value.copy(useMultiSpace = on, accountsApp = app)
+    }
 
     fun setUseMultiSpace(enabled: Boolean) {
         generalPrefs.edit().putBoolean("use_multi_space", enabled).apply()

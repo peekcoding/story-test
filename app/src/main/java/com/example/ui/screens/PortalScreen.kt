@@ -756,26 +756,39 @@ fun PortalScreen(
                         )
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Accounts are in Multi Space", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            Text(
-                                text = if (portalState.useMultiSpace)
-                                    "Each slot in the portal is a Multi Space copy number (1 = copy 1). All accounts are posted, one after another."
-                                else
-                                    "Only slot 1 is posted, in the Facebook app that is open.",
-                                color = TextSecondary,
-                                fontSize = 12.sp
-                            )
+                    // Where the Facebook accounts (slots) are
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text("Facebook accounts are in", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        val current = if (!portalState.useMultiSpace) "off" else portalState.accountsApp
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            for ((value, label) in listOf("slotbox" to "SlotBox", "multispace" to "Multi Space", "off" to "Slot 1 only")) {
+                                val selected = current == value
+                                if (selected) {
+                                    Button(
+                                        onClick = { },
+                                        colors = ButtonDefaults.buttonColors(containerColor = NeonGreen),
+                                        modifier = Modifier.weight(1f).testTag("accounts_app_$value")
+                                    ) { Text(label, color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                                } else {
+                                    OutlinedButton(
+                                        onClick = { viewModel.setAccountsApp(value) },
+                                        modifier = Modifier.weight(1f).testTag("accounts_app_$value")
+                                    ) { Text(label, fontSize = 12.sp) }
+                                }
+                            }
                         }
-                        Switch(
-                            checked = portalState.useMultiSpace,
-                            onCheckedChange = { viewModel.setUseMultiSpace(it) },
-                            modifier = Modifier.testTag("multi_space_switch")
+                        Text(
+                            text = when (current) {
+                                "slotbox" -> "Each portal slot is a SlotBox slot number. All accounts are posted, one after another."
+                                "multispace" -> "Each portal slot is a Multi Space copy number. All accounts are posted, one after another."
+                                else -> "Only slot 1 is posted, in the Facebook app that is open."
+                            },
+                            color = TextSecondary,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 4.dp)
                         )
                     }
 
