@@ -110,10 +110,16 @@ class MultiSpaceOpener(private val packageName: String = PACKAGE) : AccountOpene
                 }
                 break
             }
-            // The card's picture starts just under its title; swipe it up and off the screen.
-            val x = label.bounds.centerX
-            val startY = minOf(label.bounds.bottom + 300, service.screenHeightPixels() - 300)
-            service.swipePixels(x, startY, x, 80, 250L)
+            // Swipe from low on the card's picture (just under its title) to the top of the screen. A short swipe
+            // from near the title only moves the card a little and Recents puts it back (seen on vivo).
+            val picture = cardPicture(service, label)
+            val x = picture?.bounds?.centerX ?: label.bounds.centerX
+            val startY = if (picture != null) {
+                picture.bounds.top + picture.bounds.height * 4 / 5
+            } else {
+                label.bounds.bottom + 700
+            }.coerceAtMost(service.screenHeightPixels() - 200)
+            service.swipePixels(x, startY, x, 0, 200L)
             delay(1_200L)
             if (recentsCard(service, name) == null) {
                 closed = true
@@ -126,6 +132,14 @@ class MultiSpaceOpener(private val packageName: String = PACKAGE) : AccountOpene
         delay(1_000L)
         return closed
     }
+
+    /** The window picture of a Recents card: the ":id/snapshot" box right under the card's title. */
+    private fun cardPicture(service: StoryTestService, label: ScreenNode): ScreenNode? =
+        service.findNodes { n ->
+            (n.viewIdResourceName ?: "").endsWith(":id/snapshot") &&
+                n.bounds.top >= label.bounds.bottom &&
+                label.bounds.centerX in n.bounds.left..n.bounds.right
+        }.minByOrNull { it.bounds.top }
 
     /** The title of a Recents card, e.g. "Aqib Jav" above that account's window. */
     private fun recentsCard(service: StoryTestService, name: String): ScreenNode? {
