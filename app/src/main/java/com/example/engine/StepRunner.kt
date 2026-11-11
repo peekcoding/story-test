@@ -477,7 +477,7 @@ class StepRunner(
                             val name = NameMatcher.normalize(desc.replace(notificationsSuffix, ""))
                             if (name.isEmpty()) return@mapNotNull null
                             val hasNameText = row.flatten().any { child ->
-                                child !== row && !child.text.isNullOrBlank() && NameMatcher.normalize(child.text!!).equals(name, ignoreCase = true)
+                                child !== row && !child.text.isNullOrBlank() && NameMatcher.matches(child.text, name)
                             }
                             if (hasNameText) name to row else null
                         }
