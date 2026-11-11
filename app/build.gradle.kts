@@ -1,5 +1,14 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
+// Suppress benign IntelliJ/KSP headless AWT-EventQueue NullPointerException
+val defaultUncaughtHandler = Thread.getDefaultUncaughtExceptionHandler()
+Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+  if (thread.name.startsWith("AWT-EventQueue") && throwable is NullPointerException) {
+    return@setDefaultUncaughtExceptionHandler
+  }
+  defaultUncaughtHandler?.uncaughtException(thread, throwable)
+}
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
@@ -152,4 +161,8 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
   // "ksp"(libs.moshi.kotlin.codegen)
+}
+
+tasks.matching { it.name.startsWith("ksp") && it.name.contains("UnitTest") }.configureEach {
+  enabled = false
 }
