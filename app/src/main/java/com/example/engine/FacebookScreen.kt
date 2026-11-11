@@ -4,39 +4,50 @@ import com.example.data.model.ScreenNode
 import kotlinx.coroutines.delay
 
 /**
- * Where Facebook's Home and Menu are. Facebook has two layouts:
- * - Menu (three bars) at the top right, or
- * - Menu as the last bottom tab ("Menu, tab 6 of 6", with the profile picture and three bars).
- * When the feed is scrolled, Facebook hides the top bar and the bottom tab bar. Scrolling a little down and
- * then up brings them back.
+ * Where Facebook's Home feed and Menu are (checked on a real phone, 2026-11-11). Facebook has two layouts:
+ * - Menu (three bars) at the top right ("Menu"), or
+ * - Menu as the last bottom tab ("Menu, tab 6 of 6", profile picture with three bars).
+ * When the feed is scrolled (also right after opening, as Facebook keeps the old scroll position), Facebook
+ * hides the top bar and the bottom tabs. One small scroll up (finger down) brings them back.
+ *
+ * The bottom tabs are visible on every tab, so "Home, tab" does not mean the Home feed is showing. The feed
+ * is recognised by the Facebook logo or the "What's on your mind?" box; on the Menu tab neither is shown.
  */
 object FacebookScreen {
 
     fun isHomeNode(n: ScreenNode): Boolean {
         val d = n.contentDescription ?: ""
-        return d.startsWith("Home, tab", ignoreCase = true) || d.equals("Facebook logo", ignoreCase = true)
+        val t = n.text ?: ""
+        return d.equals("Facebook logo", ignoreCase = true) ||
+            d.startsWith("What's on your mind", ignoreCase = true) ||
+            t.startsWith("What's on your mind", ignoreCase = true)
     }
 
     fun isMenuNode(n: ScreenNode): Boolean {
         val d = (n.contentDescription ?: "").trim()
-        // "Menu" at the top right, "Menu, tab 6 of 6" in the bottom bar.
         return d.equals("Menu", ignoreCase = true) || d.startsWith("Menu,", ignoreCase = true)
     }
 
     fun isHome(handler: AutomationActionHandler): Boolean = handler.findNodes(::isHomeNode).isNotEmpty()
 
-    fun findMenu(handler: AutomationActionHandler): ScreenNode? =
-        handler.findNodes(::isMenuNode).firstOrNull { it.clickable } ?: handler.findNodes(::isMenuNode).firstOrNull()
-
-    /** Bring back the hidden top bar and bottom tabs: scroll the feed a little down, then up. */
-    suspend fun revealBars(handler: AutomationActionHandler) {
-        handler.performVerticalSwipe(50f, 60f, 48f, 350L) // finger up: feed moves down a little
-        delay(600L)
-        handler.performVerticalSwipe(50f, 40f, 65f, 350L) // finger down: feed moves up, bars come back
-        delay(1_000L)
+    /**
+     * The Menu button. The bottom tab ("Menu, tab N of N") is preferred: the Menu screen also has a "Menu"
+     * title at the top that is not a button.
+     */
+    fun findMenu(handler: AutomationActionHandler): ScreenNode? {
+        val nodes = handler.findNodes(::isMenuNode)
+        return nodes.firstOrNull { (it.contentDescription ?: "").startsWith("Menu,", ignoreCase = true) }
+            ?: nodes.firstOrNull { it.clickable }
+            ?: nodes.firstOrNull()
     }
 
-    /** Find Menu, revealing the bars up to [tries] times when it is hidden. */
+    /** Bring back the hidden top bar and bottom tabs: one small scroll up (finger moves down). */
+    suspend fun revealBars(handler: AutomationActionHandler) {
+        handler.performVerticalSwipe(50f, 42f, 55f, 300L)
+        delay(1_200L)
+    }
+
+    /** Find Menu, scrolling up a little to reveal the bars up to [tries] times when it is hidden. */
     suspend fun findMenuRevealing(handler: AutomationActionHandler, tries: Int = 3): ScreenNode? {
         repeat(tries + 1) { attempt ->
             findMenu(handler)?.let { return it }
@@ -45,17 +56,14 @@ object FacebookScreen {
         return null
     }
 
-    /**
-     * Wait for Facebook's Home screen. Every few seconds without it, reveal the bars in case they are only
-     * hidden by scrolling.
-     */
+    /** Wait for the Home feed; every few seconds without it, scroll up a little in case the bars are hidden. */
     suspend fun waitForHome(handler: AutomationActionHandler, timeoutMs: Long, isStopRequested: () -> Boolean = { false }): Boolean {
         val start = System.currentTimeMillis()
         var lastReveal = start
         while (System.currentTimeMillis() - start < timeoutMs) {
             if (isStopRequested()) return false
             if (isHome(handler)) return true
-            if (System.currentTimeMillis() - lastReveal > 4_000L && handler.findNodes { (it.packageName ?: "").isNotEmpty() }.isNotEmpty()) {
+            if (System.currentTimeMillis() - lastReveal > 4_000L) {
                 revealBars(handler)
                 lastReveal = System.currentTimeMillis()
                 if (isHome(handler)) return true
