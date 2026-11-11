@@ -584,7 +584,7 @@ class StepRunnerTest {
     fun testSwitchPageAlreadyOnTargetPage() = runTest {
         val handler = FakeAutomationActionHandler()
         // 1. Home node
-        handler.nodesToReturn.add(ScreenNode(contentDescription = "Home, tab 1 of 5"))
+        handler.nodesToReturn.add(ScreenNode(contentDescription = "Facebook logo"))
         // 2. Menu button
         handler.nodesToReturn.add(ScreenNode(contentDescription = "Menu"))
         // 3. Active page in menu
@@ -614,7 +614,7 @@ class StepRunnerTest {
     fun testSwitchPageNotFoundWithViewAllCountLogsAndError() = runTest {
         val handler = FakeAutomationActionHandler()
         // 1. Home node
-        handler.nodesToReturn.add(ScreenNode(contentDescription = "Home, tab 1 of 5"))
+        handler.nodesToReturn.add(ScreenNode(contentDescription = "Facebook logo"))
         // 2. Menu button
         handler.nodesToReturn.add(ScreenNode(contentDescription = "Menu"))
         // 3. Active page in menu (different page)
@@ -669,7 +669,7 @@ class StepRunnerTest {
     @Test
     fun testSwitchPageFoundInFirstListImmediately() = runTest {
         val handler = FakeAutomationActionHandler()
-        handler.nodesToReturn.add(ScreenNode(contentDescription = "Home, tab 1 of 5"))
+        handler.nodesToReturn.add(ScreenNode(contentDescription = "Facebook logo"))
         handler.nodesToReturn.add(ScreenNode(contentDescription = "Menu"))
         handler.nodesToReturn.add(ScreenNode(contentDescription = "Active Profile, see your profile"))
         handler.nodesToReturn.add(ScreenNode(contentDescription = "Open profile switcher"))
@@ -718,7 +718,7 @@ class StepRunnerTest {
     @Test
     fun testSwitchPageFoundAfterViewAllWithScrolls() = runTest {
         val handler = FakeAutomationActionHandler()
-        handler.nodesToReturn.add(ScreenNode(contentDescription = "Home, tab 1 of 5"))
+        handler.nodesToReturn.add(ScreenNode(contentDescription = "Facebook logo"))
         handler.nodesToReturn.add(ScreenNode(contentDescription = "Menu"))
         handler.nodesToReturn.add(ScreenNode(contentDescription = "Other Page, see your profile"))
         handler.nodesToReturn.add(ScreenNode(contentDescription = "Open profile switcher"))
@@ -733,12 +733,12 @@ class StepRunnerTest {
             if (tapped.text?.contains("View all") == true || tapped.contentDescription?.contains("View all") == true) {
                 // When View all tapped, show full list screen
                 handler.nodesToReturn.clear()
-                handler.nodesToReturn.add(ScreenNode(contentDescription = "Home, tab 1 of 5"))
+                handler.nodesToReturn.add(ScreenNode(contentDescription = "Facebook logo"))
                 handler.nodesToReturn.add(ScreenNode(text = "Your profiles & Pages"))
                 handler.nodesToReturn.add(createProfileRow("Full List Page 1"))
             } else if (tapped.contentDescription?.contains("Target Full List Page") == true || tapped.text == "Target Full List Page") {
                 handler.nodesToReturn.clear()
-                handler.nodesToReturn.add(ScreenNode(contentDescription = "Home, tab 1 of 5"))
+                handler.nodesToReturn.add(ScreenNode(contentDescription = "Facebook logo"))
                 handler.nodesToReturn.add(ScreenNode(contentDescription = "Menu"))
                 handler.nodesToReturn.add(ScreenNode(contentDescription = "Target Full List Page, see your profile"))
             }
