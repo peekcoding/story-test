@@ -15,8 +15,9 @@ import kotlinx.coroutines.delay
  */
 object FacebookScreen {
 
-    /** Really on screen: visible to the user and with a size (hidden bars stay in the tree off screen). */
-    fun isShown(n: ScreenNode): Boolean = n.visible && n.bounds.width > 0 && n.bounds.height > 0 && n.bounds.top >= 0
+    /** Really on screen: Android reports it visible to the user and it is not placed above the screen
+     *  (bars Facebook hid by scrolling stay in the tree but are not visible). */
+    fun isShown(n: ScreenNode): Boolean = n.visible && n.bounds.top >= 0
 
     fun isHomeNode(n: ScreenNode): Boolean {
         if (!isShown(n)) return false

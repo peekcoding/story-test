@@ -22,7 +22,8 @@ interface AutomationActionHandler {
     suspend fun pickNewestVideo(): Boolean
     suspend fun takeScreenshot(name: String): String?
     suspend fun sleep(ms: Long)
-    suspend fun prepareModelVideo(modelCode: String): Boolean
+    /** Copy the model's video for [storyDate] to the top of the gallery. Null when it worked, else the reason. */
+    suspend fun prepareModelVideo(modelCode: String, storyDate: String?): String?
     fun hasSeenTextAfter(text: String, afterTimestamp: Long): Boolean
     fun getRecentSeenTexts(): List<com.example.data.model.SeenTextEntry>
 }

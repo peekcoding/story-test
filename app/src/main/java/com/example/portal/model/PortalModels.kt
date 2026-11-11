@@ -108,6 +108,8 @@ data class PortalTask(
     @Json(name = "model_code") val modelCode: String = "",
     @Json(name = "link") val link: String = "",
     @Json(name = "starts_at") val startsAt: String? = null,
+    /** The day whose video to post (yyyy-MM-dd): the file Movies/PageShare/<MODEL>/<date>.mp4. */
+    @Json(name = "story_date") val storyDate: String? = null,
     @Json(name = "attempt") val attempt: Int = 0,
     // Local execution UI state
     val localStatus: String? = null,

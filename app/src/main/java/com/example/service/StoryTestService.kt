@@ -891,8 +891,8 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
         delay(ms)
     }
 
-    override suspend fun prepareModelVideo(modelCode: String): Boolean {
-        return com.example.portal.ModelVideoScanner(this).prepareNewestModelVideoForStory(modelCode)
+    override suspend fun prepareModelVideo(modelCode: String, storyDate: String?): String? {
+        return com.example.portal.ModelVideoScanner(this).prepareModelVideoForStory(modelCode, storyDate)
     }
 
     // =========================================================================

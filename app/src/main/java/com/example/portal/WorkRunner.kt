@@ -227,6 +227,7 @@ class WorkRunner(
                         popupRules = popupRules,
                         previousStepStartTime = previousStepStartTime,
                         modelCode = task.modelCode,
+                        storyDate = task.storyDate,
                         onReportStep = { stepText ->
                             portalRepository.sendReportEvents(task.uuid, stepText)
                         },

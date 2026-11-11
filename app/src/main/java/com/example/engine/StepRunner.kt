@@ -40,6 +40,7 @@ class StepRunner(
         popupRules: List<PopupRuleEntity> = emptyList(),
         previousStepStartTime: Long = 0L,
         modelCode: String = "",
+        storyDate: String? = null,
         onReportStep: (suspend (stepText: String) -> Boolean)? = null,
         onReportEvent: (suspend (stepText: String, message: String?) -> Boolean)? = null,
         isStopRequested: (() -> Boolean)? = null,
@@ -110,6 +111,31 @@ class StepRunner(
                 val clicked = handler.performTapNode(node)
                 if (!clicked) {
                     throw StepExecutionException(stepSummary, "Could not tap node with desc '${step.text}'")
+                }
+
+                // Picking the video: Facebook sometimes shows a tutorial bubble over the gallery ("Long press to
+                // share with No Edit") that swallows the first tap. If the gallery is still there, tap the newest
+                // video again (it is the first match), up to 3 taps in all.
+                if (step.text.startsWith("Select video", ignoreCase = true) || step.text.startsWith("Select photo", ignoreCase = true)) {
+                    val matches: (ScreenNode) -> Boolean = { n ->
+                        FacebookScreen.isShown(n) && (n.contentDescription ?: "").contains(step.text, ignoreCase = true)
+                    }
+                    for (attempt in 2..3) {
+                        var stillOnGallery = true
+                        val waitStart = System.currentTimeMillis()
+                        while (System.currentTimeMillis() - waitStart < 4_000L) {
+                            if (checkStop()) throw TaskStopRequestedException("Stop requested while opening the video")
+                            delay(400L)
+                            if (handler.findNodes(matches).isEmpty()) {
+                                stillOnGallery = false
+                                break
+                            }
+                        }
+                        if (!stillOnGallery) break
+                        val again = handler.findNodes(matches).firstOrNull() ?: break
+                        onLog("Gallery still showing (a tip may have caught the tap); tapping the video again ($attempt/3)")
+                        handler.performTapNode(again)
+                    }
                 }
                 return null
             }
@@ -511,7 +537,9 @@ class StepRunner(
                                 loadingWaits++
                                 onLog("Waiting for list to load...")
                             }
-                        } else if (elapsed >= 15000L || loops >= 50) {
+                        } else if (elapsed >= (if (scrolled) 15000L else 4000L) || loops >= 50) {
+                            // The list really scrolled: give slow internet 15 s to load the next rows.
+                            // It could not scroll (short list, end reached) and nothing loads: 4 s is enough.
                             break
                         }
                         delay(300L)
@@ -555,10 +583,27 @@ class StepRunner(
                     // 5. Scroll the sheet (up to 4 steps) until the target or "View all" shows.
                     var viewAllNode = findViewAllNode()
                     var sheetScrolls = 0
+                    fun endOfListShown(): Boolean = handler.findNodes { n ->
+                        val label = ((n.text ?: "") + " " + (n.contentDescription ?: "")).trim()
+                        FacebookScreen.isShown(n) && (
+                            label.contains("Create Facebook Page", ignoreCase = true) ||
+                                label.contains("Go to Meta Account settings", ignoreCase = true) ||
+                                label.contains("Go to Accounts Center", ignoreCase = true))
+                    }.isNotEmpty()
+
                     while (viewAllNode == null && sheetScrolls < 4) {
+                        if (endOfListShown()) {
+                            onLog("Whole profile list is shown (no 'View all'); the page is not in this account")
+                            break
+                        }
                         sheetScrolls++
                         onLog("Scrolling sheet step $sheetScrolls/4...")
-                        scrollOneStep()
+                        val moved = scrollOneStep()
+                        if (!moved && findTargetRowNode() == null && findViewAllNode() == null) {
+                            onLog("Sheet can not scroll further; the page is not in this account")
+                            allSeenProfileNames.addAll(visibleProfileNames())
+                            break
+                        }
                         allSeenProfileNames.addAll(visibleProfileNames())
                         val sheetMatch = findTargetRowNode()
                         if (sheetMatch != null) {
@@ -742,12 +787,12 @@ class StepRunner(
             }
 
             StepType.PREPARE_MODEL_VIDEO -> {
-                onLog("Preparing newest model video for model '$modelCode'...")
-                val success = handler.prepareModelVideo(modelCode)
-                if (!success) {
-                    throw StepExecutionException(stepSummary, "No video in Movies/PageShare/$modelCode/")
+                onLog("Preparing the $modelCode video for ${storyDate ?: "the newest file"}...")
+                val error = handler.prepareModelVideo(modelCode, storyDate)
+                if (error != null) {
+                    throw StepExecutionException(stepSummary, error)
                 }
-                onLog("Prepared newest model video in DCIM/PageShareStory/")
+                onLog("Prepared the $modelCode video in DCIM/PageShareStory/")
                 return "prepareModelVideo: success"
             }
         }

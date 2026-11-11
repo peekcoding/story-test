@@ -22,6 +22,12 @@ class ModelVideoScanner(private val context: Context) {
     companion object {
         const val RELATIVE_PATH_PREFIX = "Movies/PageShare/"
 
+        /** File names that start with a date, e.g. 2026-11-12.mp4 or 2026-11-12_leonor.mp4. */
+        val DATED_NAME = Regex("""^\d{4}-\d{2}-\d{2}""")
+
+        /** Today on the phone, yyyy-MM-dd. */
+        fun todayDate(): String = java.time.LocalDate.now().toString()
+
         // Cache sha256 by key "$contentUriString-$sizeBytes-$dateModifiedSeconds"
         private val sha256Cache = ConcurrentHashMap<String, String>()
 
@@ -85,7 +91,14 @@ class ModelVideoScanner(private val context: Context) {
      * Keeps only the newest video per modelCode (largest dateModifiedSeconds, then dateAddedSeconds).
      * Computes sha256 (cached) and returns a list of ModelVideoInfo.
      */
-    suspend fun scanNewestModelVideos(): List<ModelVideoInfo> = withContext(Dispatchers.IO) {
+    suspend fun scanNewestModelVideos(): List<ModelVideoInfo> = scanModelVideos(todayDate())
+
+    /**
+     * The video per model for [storyDate] (yyyy-MM-dd). A folder that holds dated files (names starting with a
+     * date, e.g. 2026-11-12.mp4) gives the file for that day, or nothing when that day has no file. A folder
+     * without dated files gives its newest video, as before.
+     */
+    suspend fun scanModelVideos(storyDate: String?): List<ModelVideoInfo> = withContext(Dispatchers.IO) {
         val collectionUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
         } else {
@@ -167,11 +180,20 @@ class ModelVideoScanner(private val context: Context) {
         val resultList = mutableListOf<ModelVideoInfo>()
 
         for ((modelCode, videoList) in rawVideosByModel) {
-            // Sort by largest DATE_MODIFIED, then largest DATE_ADDED
-            val newest = videoList.maxWithOrNull(
-                compareBy<RawVideoEntry> { it.dateModifiedSeconds }
-                    .thenBy { it.dateAddedSeconds }
-            ) ?: continue
+            val dated = videoList.filter { DATED_NAME.containsMatchIn(it.displayName) }
+            val newest = if (dated.isNotEmpty()) {
+                // Dated folder: only the file for this day counts (newest copy if there are several).
+                if (storyDate.isNullOrBlank()) continue
+                dated.filter { it.displayName.startsWith(storyDate) }
+                    .maxWithOrNull(compareBy<RawVideoEntry> { it.dateModifiedSeconds }.thenBy { it.dateAddedSeconds })
+                    ?: continue
+            } else {
+                // Sort by largest DATE_MODIFIED, then largest DATE_ADDED
+                videoList.maxWithOrNull(
+                    compareBy<RawVideoEntry> { it.dateModifiedSeconds }
+                        .thenBy { it.dateAddedSeconds }
+                ) ?: continue
+            }
 
             val uriStr = newest.contentUri.toString()
             val cacheKey = "$uriStr-${newest.sizeBytes}-${newest.dateModifiedSeconds}"
@@ -213,13 +235,21 @@ class ModelVideoScanner(private val context: Context) {
      * Waits 2 seconds after the copy.
      * If the folder has no video, returns false (fails step with "No video in Movies/PageShare/<CODE>/").
      */
-    suspend fun prepareNewestModelVideoForStory(modelCode: String): Boolean = withContext(Dispatchers.IO) {
-        val cleanCode = modelCode.trim().uppercase()
-        if (cleanCode.isBlank()) return@withContext false
+    suspend fun prepareNewestModelVideoForStory(modelCode: String): Boolean =
+        prepareModelVideoForStory(modelCode, null) == null
 
-        val newestList = scanNewestModelVideos()
-        val targetVideo = newestList.find { it.modelCode.equals(cleanCode, ignoreCase = true) }
-            ?: return@withContext false
+    /**
+     * Copy the model's video for [storyDate] to the top of the gallery (see [scanModelVideos] for how it is
+     * chosen). Returns null when it worked, or the reason it could not.
+     */
+    suspend fun prepareModelVideoForStory(modelCode: String, storyDate: String?): String? = withContext(Dispatchers.IO) {
+        val cleanCode = modelCode.trim().uppercase()
+        if (cleanCode.isBlank()) return@withContext "This page has no model"
+
+        val chosen = scanModelVideos(storyDate)
+        val targetVideo = chosen.find { it.modelCode.equals(cleanCode, ignoreCase = true) }
+            ?: return@withContext if (storyDate.isNullOrBlank()) "No video in Movies/PageShare/$cleanCode/"
+            else "No $cleanCode video for $storyDate (expected Movies/PageShare/$cleanCode/$storyDate.mp4)"
 
         val sourceUri = Uri.parse(targetVideo.contentUriString)
 
@@ -266,7 +296,7 @@ class ModelVideoScanner(private val context: Context) {
             }
         }
 
-        val newUri = context.contentResolver.insert(collectionUri, values) ?: return@withContext false
+        val newUri = context.contentResolver.insert(collectionUri, values) ?: return@withContext "Could not copy the video to the gallery"
 
         try {
             context.contentResolver.openInputStream(sourceUri)?.use { input ->
@@ -285,13 +315,14 @@ class ModelVideoScanner(private val context: Context) {
 
             // Wait 2 seconds after the copy
             kotlinx.coroutines.delay(2000L)
-            true
+            android.util.Log.i("StoryBot", "Prepared ${targetVideo.fileName} for $cleanCode${if (storyDate != null) " ($storyDate)" else ""}")
+            null
         } catch (e: Exception) {
             e.printStackTrace()
             try {
                 context.contentResolver.delete(newUri, null, null)
             } catch (ignored: Exception) {}
-            false
+            "Could not copy ${targetVideo.fileName}: ${e.message}"
         }
     }
 }

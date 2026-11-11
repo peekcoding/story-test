@@ -113,9 +113,9 @@ class FakeAutomationActionHandler : AutomationActionHandler {
 
     var prepareModelVideoResult: Boolean = true
     var preparedModelCodes = mutableListOf<String>()
-    override suspend fun prepareModelVideo(modelCode: String): Boolean {
+    override suspend fun prepareModelVideo(modelCode: String, storyDate: String?): String? {
         preparedModelCodes.add(modelCode)
-        return prepareModelVideoResult
+        return if (prepareModelVideoResult) null else "No video in Movies/PageShare/$modelCode/"
     }
 
     override fun hasSeenTextAfter(text: String, afterTimestamp: Long): Boolean {
