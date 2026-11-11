@@ -85,8 +85,10 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
 @Composable
-fun PortalScreen(
+fun SettingsScreen(
     viewModel: StoryTestViewModel,
+    onOpenPopups: () -> Unit,
+    onOpenSafety: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -122,13 +124,13 @@ fun PortalScreen(
         ) {
             Column {
                 Text(
-                    text = "Web Portal",
+                    text = "Settings",
                     color = TextPrimary,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Device management & remote heartbeat",
+                    text = "Connection, accounts and rules",
                     color = TextSecondary,
                     fontSize = 13.sp
                 )
@@ -153,7 +155,7 @@ fun PortalScreen(
                         .background(statusColor)
                 )
                 Text(
-                    text = if (portalState.isRegistered) "Enrolled" else "Not Registered",
+                    text = if (portalState.isRegistered) "Registered" else "Not registered",
                     color = statusColor,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
@@ -651,303 +653,62 @@ fun PortalScreen(
             }
         }
 
-        // =====================================================================
-        // Work Section
-        // =====================================================================
-        if (portalState.isRegistered) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+        // Facebook accounts and rules
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = DarkSurface),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Facebook accounts are in", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                val current = if (!portalState.useMultiSpace) "off" else portalState.accountsApp
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.CloudDone,
-                                contentDescription = null,
-                                tint = NeonGreen,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Work & Campaigns",
-                                color = TextPrimary,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        if (portalState.scriptVersion != null) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(DarkSurfaceVariant)
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = "Script v${portalState.scriptVersion}",
-                                    color = NeonGreen,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                    for ((value, label) in listOf("slotbox" to "SlotBox", "multispace" to "Multi Space", "off" to "Slot 1 only")) {
+                        if (current == value) {
+                            Button(
+                                onClick = { },
+                                colors = ButtonDefaults.buttonColors(containerColor = NeonGreen),
+                                modifier = Modifier.weight(1f).testTag("accounts_app_$value")
+                            ) { Text(label, color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                        } else {
+                            OutlinedButton(
+                                onClick = { viewModel.setAccountsApp(value) },
+                                modifier = Modifier.weight(1f).testTag("accounts_app_$value")
+                            ) { Text(label, fontSize = 12.sp) }
                         }
                     }
+                }
+                Text(
+                    text = when (current) {
+                        "slotbox" -> "Each portal slot is a SlotBox slot number. All accounts are posted, one after another."
+                        "multispace" -> "Each portal slot is a Multi Space copy number. All accounts are posted, one after another."
+                        else -> "Only slot 1 is posted, in the Facebook app that is open."
+                    },
+                    color = TextSecondary,
+                    fontSize = 12.sp
+                )
+            }
+        }
 
-                    if (!portalState.scriptName.isNullOrBlank()) {
-                        Text(
-                            text = "Script: ${portalState.scriptName}",
-                            color = TextSecondary,
-                            fontSize = 13.sp
-                        )
-                    }
-
-                    if (portalState.lastWorkCheckTime != null) {
-                        Text(
-                            text = "Last checked: ${portalState.lastWorkCheckTime}",
-                            color = TextSecondary,
-                            fontSize = 12.sp
-                        )
-                    }
-
-                    if (portalState.postingStatusMessage != null) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(DarkSurfaceVariant)
-                                .padding(8.dp)
-                        ) {
-                            Text(
-                                text = portalState.postingStatusMessage ?: "",
-                                color = if (portalState.isPostingWork) NeonGreen else TextSecondary,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-
-                    // Automatic posting: the phone starts by itself when the portal has pages for it
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Post automatically", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            Text(
-                                text = "Starts by itself when a campaign starts in the portal, also at its scheduled time.",
-                                color = TextSecondary,
-                                fontSize = 12.sp
-                            )
-                        }
-                        Switch(
-                            checked = portalState.autoPostEnabled,
-                            onCheckedChange = { viewModel.setAutoPost(it) },
-                            modifier = Modifier.testTag("auto_post_switch")
-                        )
-                    }
-
-                    // Where the Facebook accounts (slots) are
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = DarkSurface),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(modifier = Modifier.padding(8.dp)) {
+                TextButton(onClick = onOpenPopups, modifier = Modifier.fillMaxWidth().testTag("open_popups_btn")) {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        Text("Facebook accounts are in", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        val current = if (!portalState.useMultiSpace) "off" else portalState.accountsApp
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            for ((value, label) in listOf("slotbox" to "SlotBox", "multispace" to "Multi Space", "off" to "Slot 1 only")) {
-                                val selected = current == value
-                                if (selected) {
-                                    Button(
-                                        onClick = { },
-                                        colors = ButtonDefaults.buttonColors(containerColor = NeonGreen),
-                                        modifier = Modifier.weight(1f).testTag("accounts_app_$value")
-                                    ) { Text(label, color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
-                                } else {
-                                    OutlinedButton(
-                                        onClick = { viewModel.setAccountsApp(value) },
-                                        modifier = Modifier.weight(1f).testTag("accounts_app_$value")
-                                    ) { Text(label, fontSize = 12.sp) }
-                                }
-                            }
-                        }
-                        Text(
-                            text = when (current) {
-                                "slotbox" -> "Each portal slot is a SlotBox slot number. All accounts are posted, one after another."
-                                "multispace" -> "Each portal slot is a Multi Space copy number. All accounts are posted, one after another."
-                                else -> "Only slot 1 is posted, in the Facebook app that is open."
-                            },
-                            color = TextSecondary,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
+                        Text("Popup rules", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Popups StoryBot closes by itself, e.g. \"Not now\".", color = TextSecondary, fontSize = 12.sp)
                     }
-
-                    if (portalState.pendingReports > 0) {
-                        Text(
-                            text = "${portalState.pendingReports} report(s) waiting for internet; they are sent automatically.",
-                            color = TextSecondary,
-                            fontSize = 12.sp
-                        )
-                    }
-
-                    // Action buttons: Check for work & Post all now
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = { viewModel.checkForWorkNow() },
-                            enabled = !portalState.isLoadingWork && !portalState.isPostingWork,
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("check_work_btn")
-                        ) {
-                            if (portalState.isLoadingWork) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = NeonGreen)
-                                Spacer(modifier = Modifier.width(6.dp))
-                            }
-                            Text("Check for work")
-                        }
-
-                        Button(
-                            onClick = { viewModel.postAllWorkNow() },
-                            enabled = !portalState.isPostingWork && portalState.workSlots.isNotEmpty(),
-                            colors = ButtonDefaults.buttonColors(containerColor = NeonGreen),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("post_all_now_btn")
-                        ) {
-                            if (portalState.isPostingWork) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.Black)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Posting...", color = Color.Black, fontWeight = FontWeight.Bold)
-                            } else {
-                                Text("Post all now", color = Color.Black, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-
-                    // Tasks grouped by slot
-                    if (portalState.workSlots.isEmpty()) {
-                        Text(
-                            text = "No work queued from portal. Tap 'Check for work' to fetch pending slots.",
-                            color = TextSecondary,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        )
-                    } else {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.padding(top = 4.dp)
-                        ) {
-                            for (slot in portalState.workSlots) {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "Slot ${slot.slotNumber}${if (!slot.accountLabel.isNullOrBlank()) " (${slot.accountLabel})" else ""}",
-                                                color = if (slot.slotNumber == 1) NeonGreen else TextSecondary,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp
-                                            )
-                                            Text(
-                                                text = "${slot.tasks.size} task${if (slot.tasks.size == 1) "" else "s"}",
-                                                color = TextSecondary,
-                                                fontSize = 12.sp
-                                            )
-                                        }
-
-                                        Spacer(modifier = Modifier.height(6.dp))
-
-                                        for (task in slot.tasks) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(vertical = 4.dp),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        text = task.pageName.ifEmpty { "Unknown Page" },
-                                                        color = TextPrimary,
-                                                        fontSize = 13.sp,
-                                                        fontWeight = FontWeight.SemiBold
-                                                    )
-                                                    Row(
-                                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Text(
-                                                            text = "Model: ${task.modelCode.ifEmpty { "-" }}",
-                                                            color = TextSecondary,
-                                                            fontSize = 12.sp
-                                                        )
-                                                        if (task.startsAt != null) {
-                                                            Text(
-                                                                text = "Starts: ${task.startsAt}",
-                                                                color = TextSecondary,
-                                                                fontSize = 11.sp
-                                                            )
-                                                        }
-                                                    }
-                                                    if (!task.localError.isNullOrBlank()) {
-                                                        Text(
-                                                            text = task.localError,
-                                                            color = CoralRed,
-                                                            fontSize = 11.sp
-                                                        )
-                                                    }
-                                                }
-
-                                                val statusText = task.localStatus ?: task.status
-                                                val statusColor = when (statusText.uppercase()) {
-                                                    "OK", "SHARED" -> NeonGreen
-                                                    "FAILED" -> CoralRed
-                                                    "NEEDS_PERSON" -> AmberWarning
-                                                    "RUNNING" -> NeonGreen
-                                                    "CANCELLED IN PORTAL", "CANCELLED" -> CoralRed
-                                                    "SKIPPED" -> TextSecondary
-                                                    else -> TextSecondary
-                                                }
-
-                                                Box(
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(4.dp))
-                                                        .background(statusColor.copy(alpha = 0.15f))
-                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                ) {
-                                                    Text(
-                                                        text = if (statusText.equals("Cancelled in portal", ignoreCase = true)) "Cancelled in portal" else statusText.uppercase(),
-                                                        color = statusColor,
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                }
+                TextButton(onClick = onOpenSafety, modifier = Modifier.fillMaxWidth().testTag("open_safety_btn")) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text("Safety words", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Screens where StoryBot stops and asks a person, e.g. \"Confirm it's you\".", color = TextSecondary, fontSize = 12.sp)
                     }
                 }
             }
@@ -981,9 +742,9 @@ fun PortalScreen(
 
                 Text(
                     text = if (isIgnoringBatteryOptimizations) {
-                        "Battery optimization is disabled. Android will allow the portal heartbeat to run reliably in the background."
+                        "Battery optimization is off. StoryBot keeps working in the background."
                     } else {
-                        "Android may sleep background services. Please exempt Story Test from battery optimization so heartbeats continue."
+                        "Android may pause StoryBot in the background. Turn off battery optimization so it keeps working."
                     },
                     color = TextSecondary,
                     fontSize = 13.sp

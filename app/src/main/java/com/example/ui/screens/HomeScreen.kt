@@ -1,7 +1,6 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,22 +16,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,399 +31,282 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.portal.model.PortalTask
 import com.example.ui.StoryTestViewModel
 import com.example.ui.theme.AmberWarning
-import com.example.ui.theme.BorderDark
 import com.example.ui.theme.CoralRed
+import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.DarkSurfaceVariant
 import com.example.ui.theme.NeonGreen
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
+/**
+ * StoryBot home: is the phone ready, what is it posting right now, and today's pages. Everything else
+ * (registration, accounts app, videos, popup and safety words) is in Settings.
+ */
 @Composable
 fun HomeScreen(
     viewModel: StoryTestViewModel,
-    onNavigateToRun: () -> Unit,
-    onNavigateToScripts: () -> Unit,
-    onNavigateToCaptures: () -> Unit,
-    onNavigateToSafety: () -> Unit,
-    onNavigateToPortal: () -> Unit = {}
+    onOpenSettings: () -> Unit,
 ) {
     val context = LocalContext.current
     val isServiceEnabled by viewModel.isServiceEnabled.collectAsState()
-    val scripts by viewModel.scripts.collectAsState()
-    val captures by viewModel.captures.collectAsState()
-    val safetyRules by viewModel.safetyRules.collectAsState()
+    val portalState by viewModel.portalState.collectAsState()
     val liveRunState by viewModel.liveRunState.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.checkServiceStatus()
     }
 
+    val allTasks = portalState.workSlots.flatMap { it.tasks }
+    val currentTask = allTasks.firstOrNull { it.uuid == liveRunState.taskUuid }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .background(DarkBackground)
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // App Header
+        // Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column {
+                Text("StoryBot", color = TextPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold)
                 Text(
-                    text = "Story Test",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                )
-                Text(
-                    text = "Automated hands-free posting & inspector",
-                    style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary)
+                    text = portalState.deviceName ?: "Not connected to the portal",
+                    color = TextSecondary,
+                    fontSize = 13.sp
                 )
             }
-            Box(
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(if (isServiceEnabled) NeonGreen.copy(alpha = 0.2f) else CoralRed.copy(alpha = 0.2f))
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    text = if (isServiceEnabled) "SERVICE ACTIVE" else "SERVICE OFF",
-                    color = if (isServiceEnabled) NeonGreen else CoralRed,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 11.sp
-                )
-            }
-        }
-
-        // Accessibility Service Status Card
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("service_status_card"),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface),
-            shape = RoundedCornerShape(16.dp),
-            border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                if (isServiceEnabled) NeonGreen.copy(alpha = 0.5f) else AmberWarning.copy(alpha = 0.5f)
+            val ready = portalState.isRegistered && isServiceEnabled
+            StatusChip(
+                text = when {
+                    !portalState.isRegistered -> "Not connected"
+                    !isServiceEnabled -> "Needs setup"
+                    else -> "Online"
+                },
+                color = if (ready) NeonGreen else AmberWarning
             )
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = if (isServiceEnabled) Icons.Default.CheckCircle else Icons.Default.Warning,
-                        contentDescription = "Service Status",
-                        tint = if (isServiceEnabled) NeonGreen else AmberWarning,
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = if (isServiceEnabled) "Accessibility Service Enabled" else "Accessibility Service Required",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.SemiBold,
-                                color = TextPrimary
-                            )
-                        )
-                        Text(
-                            text = if (isServiceEnabled)
-                                "Overlay & gesture automation are ready"
-                            else
-                                "Enable 'Story Test' in Settings to allow automated gestures and screen inspection",
-                            style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
-                        )
-                    }
-                }
+        }
 
-                if (!isServiceEnabled) {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Button(
-                        onClick = { viewModel.openAccessibilitySettings(context) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("enable_service_button"),
-                        colors = ButtonDefaults.buttonColors(containerColor = AmberWarning, contentColor = androidx.compose.ui.graphics.Color.Black),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Open Accessibility Settings", fontWeight = FontWeight.Bold)
+        // Setup checklist: only shown while something is missing
+        if (!isServiceEnabled || !portalState.isRegistered) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = AmberWarning.copy(alpha = 0.10f)),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Finish setup", color = AmberWarning, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    if (!isServiceEnabled) {
+                        Text("Turn on StoryBot in Accessibility so it can tap for you.", color = TextPrimary, fontSize = 13.sp)
+                        Button(
+                            onClick = { viewModel.openAccessibilitySettings(context) },
+                            colors = ButtonDefaults.buttonColors(containerColor = AmberWarning),
+                            modifier = Modifier.fillMaxWidth().testTag("open_accessibility_btn")
+                        ) { Text("Open Accessibility", color = Color.Black, fontWeight = FontWeight.Bold) }
+                    }
+                    if (!portalState.isRegistered) {
+                        Text("Register this phone with the code from the portal.", color = TextPrimary, fontSize = 13.sp)
+                        Button(
+                            onClick = onOpenSettings,
+                            colors = ButtonDefaults.buttonColors(containerColor = AmberWarning),
+                            modifier = Modifier.fillMaxWidth().testTag("go_register_btn")
+                        ) { Text("Register in Settings", color = Color.Black, fontWeight = FontWeight.Bold) }
                     }
                 }
             }
         }
 
-        // Live execution banner if running
-        if (liveRunState.isRunning) {
+        // Posting
+        if (portalState.isRegistered) {
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("live_run_banner"),
-                colors = CardDefaults.cardColors(containerColor = NeonGreen.copy(alpha = 0.15f)),
-                border = androidx.compose.foundation.BorderStroke(1.dp, NeonGreen),
-                shape = RoundedCornerShape(16.dp)
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                shape = RoundedCornerShape(14.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (portalState.isPostingWork) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = NeonGreen)
+                            Spacer(modifier = Modifier.width(10.dp))
+                        }
                         Text(
-                            text = "AUTOMATION RUNNING",
-                            color = NeonGreen,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
-                        Text(
-                            text = "Page: ${liveRunState.currentPage} (Step ${liveRunState.currentStepNumber}/${liveRunState.totalSteps})",
+                            text = if (portalState.isPostingWork) "Posting" else "Waiting for work",
                             color = TextPrimary,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp
-                        )
-                        Text(
-                            text = liveRunState.currentStepName,
-                            color = TextSecondary,
-                            fontSize = 12.sp,
-                            maxLines = 1
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
-                    Button(
-                        onClick = { viewModel.stopRun() },
-                        colors = ButtonDefaults.buttonColors(containerColor = CoralRed),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("Stop", fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
 
-        // Web Portal Status Card
-        val portalState by viewModel.portalState.collectAsState()
-        Card(
-            onClick = onNavigateToPortal,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("home_portal_card"),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface),
-            shape = RoundedCornerShape(16.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(if (portalState.isRegistered) NeonGreen.copy(alpha = 0.15f) else DarkSurfaceVariant),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Cloud,
-                            contentDescription = "Portal",
-                            tint = if (portalState.isRegistered) NeonGreen else TextSecondary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (currentTask != null && liveRunState.isRunning) {
+                        Column {
                             Text(
-                                text = "Web Portal",
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary,
-                                fontSize = 15.sp
+                                text = "Slot ${currentTask.slotNumber} · ${currentTask.pageName}",
+                                color = NeonGreen,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(if (portalState.isRegistered) NeonGreen else AmberWarning)
+                            if (liveRunState.currentStepName.isNotBlank()) {
+                                Text(friendlyStep(liveRunState.currentStepName), color = TextSecondary, fontSize = 13.sp)
+                            }
+                        }
+                    } else if (!portalState.postingStatusMessage.isNullOrBlank()) {
+                        Text(portalState.postingStatusMessage ?: "", color = TextSecondary, fontSize = 13.sp)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Post automatically", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(
+                                "Starts by itself when a campaign starts in the portal.",
+                                color = TextSecondary,
+                                fontSize = 12.sp
                             )
                         }
+                        Switch(
+                            checked = portalState.autoPostEnabled,
+                            onCheckedChange = { viewModel.setAutoPost(it) },
+                            modifier = Modifier.testTag("auto_post_switch")
+                        )
+                    }
+
+                    if (portalState.isPostingWork) {
+                        OutlinedButton(
+                            onClick = { viewModel.stopPortalPosting() },
+                            modifier = Modifier.fillMaxWidth().testTag("stop_posting_btn")
+                        ) { Text("Stop", color = CoralRed, fontWeight = FontWeight.Bold) }
+                    } else {
+                        Button(
+                            onClick = { viewModel.postAllWorkNow() },
+                            enabled = isServiceEnabled,
+                            colors = ButtonDefaults.buttonColors(containerColor = NeonGreen),
+                            modifier = Modifier.fillMaxWidth().testTag("post_now_btn")
+                        ) { Text("Check and post now", color = Color.Black, fontWeight = FontWeight.Bold) }
+                    }
+
+                    if (portalState.pendingReports > 0) {
                         Text(
-                            text = if (portalState.isRegistered) {
-                                "${portalState.deviceName ?: "Phone"} • Online"
-                            } else {
-                                "Not registered • Tap to enroll"
-                            },
-                            color = TextSecondary,
+                            "${portalState.pendingReports} report(s) waiting for internet. They are sent automatically.",
+                            color = AmberWarning,
                             fontSize = 12.sp
                         )
-                        if (portalState.lastHeartbeatTime != null) {
+                    }
+                    if (!portalState.lastError.isNullOrBlank()) {
+                        Text(portalState.lastError ?: "", color = CoralRed, fontSize = 12.sp)
+                    }
+                }
+            }
+
+            // Today's pages
+            Text("Pages", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            if (allTasks.isEmpty()) {
+                Text(
+                    "Nothing to post right now. Start a campaign in the portal.",
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
+            } else {
+                for (slot in portalState.workSlots.sortedBy { it.slotNumber }) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                text = "Last beat: ${portalState.lastHeartbeatTime}",
+                                text = "Slot ${slot.slotNumber}${if (!slot.accountLabel.isNullOrBlank()) " · ${slot.accountLabel}" else ""}",
                                 color = TextSecondary,
-                                fontSize = 11.sp
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
+                            for (task in slot.tasks) {
+                                TaskRow(task)
+                            }
                         }
                     }
                 }
-
-                Button(
-                    onClick = onNavigateToPortal,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (portalState.isRegistered) DarkSurfaceVariant else NeonGreen
-                    ),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = if (portalState.isRegistered) "Manage" else "Enroll",
-                        color = if (portalState.isRegistered) TextPrimary else androidx.compose.ui.graphics.Color.Black,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
-                    )
-                }
             }
         }
 
-        // Inspector Overlay Explainer Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface),
-            shape = RoundedCornerShape(16.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.CameraAlt,
-                        contentDescription = "Inspector Overlay",
-                        tint = NeonGreen,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Floating Inspector & Stop Overlay",
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextPrimary
-                        )
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "A compact floating pill stays on top of other apps. Tap the Camera button at any time to capture node IDs, text, and screenshot. Tap the Red Stop button to abort runs instantly.",
-                    style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
-                )
-            }
-        }
-
-        // Quick Navigation Grid
-        Text(
-            text = "Automated Testing Hub",
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-            )
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // Run Card
-            Card(
-                onClick = onNavigateToRun,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("nav_card_run"),
-                colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
-                shape = RoundedCornerShape(14.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark)
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = NeonGreen, modifier = Modifier.size(28.dp))
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Run Batch", fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 15.sp)
-                    Text("Execute story scripts", color = TextSecondary, fontSize = 12.sp)
-                }
-            }
-
-            // Scripts Card
-            Card(
-                onClick = onNavigateToScripts,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("nav_card_scripts"),
-                colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
-                shape = RoundedCornerShape(14.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark)
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Icon(Icons.Default.Layers, contentDescription = null, tint = CyanAccent, modifier = Modifier.size(28.dp))
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Scripts (${scripts.size})", fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 15.sp)
-                    Text("Build & edit steps", color = TextSecondary, fontSize = 12.sp)
-                }
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            // Captures Card
-            Card(
-                onClick = onNavigateToCaptures,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("nav_card_captures"),
-                colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
-                shape = RoundedCornerShape(14.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark)
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = NeonGreen, modifier = Modifier.size(28.dp))
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Captures (${captures.size})", fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 15.sp)
-                    Text("Inspect trees & shots", color = TextSecondary, fontSize = 12.sp)
-                }
-            }
-
-            // Safety Card
-            Card(
-                onClick = onNavigateToSafety,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("nav_card_safety"),
-                colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
-                shape = RoundedCornerShape(14.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, BorderDark)
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Icon(Icons.Default.Security, contentDescription = null, tint = AmberWarning, modifier = Modifier.size(28.dp))
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Safety (${safetyRules.count { it.isEnabled }})", fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 15.sp)
-                    Text("Human guard rules", color = TextSecondary, fontSize = 12.sp)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
     }
 }
-private val CyanAccent = androidx.compose.ui.graphics.Color(0xFF00E5FF)
+
+@Composable
+private fun TaskRow(task: PortalTask) {
+    val (label, color) = friendlyStatus(task)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(task.pageName.ifEmpty { "Page" }, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            val detail = task.localError ?: (if (task.modelCode.isNotBlank()) "Video: ${task.modelCode}" else null)
+            if (detail != null) {
+                Text(detail, color = if (task.localError != null) CoralRed else TextSecondary, fontSize = 12.sp)
+            }
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(color.copy(alpha = 0.15f))
+                .padding(horizontal = 8.dp, vertical = 3.dp)
+        ) {
+            Text(label, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun StatusChip(text: String, color: Color) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(color.copy(alpha = 0.15f))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(color))
+        Text(text, color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/** Short, plain status for a page. */
+private fun friendlyStatus(task: PortalTask): Pair<String, Color> {
+    val status = (task.localStatus ?: task.status).uppercase()
+    return when {
+        status == "OK" || status == "SHARED" -> "Shared" to NeonGreen
+        status == "RUNNING" -> "Posting" to NeonGreen
+        status == "FAILED" -> "Failed" to CoralRed
+        status == "NEEDS_PERSON" -> "Needs you" to AmberWarning
+        status.startsWith("CANCELLED") -> "Cancelled" to CoralRed
+        status == "WAITING" -> "Scheduled" to TextSecondary
+        status == "SKIPPED" -> "Skipped" to TextSecondary
+        else -> "Waiting" to TextSecondary
+    }
+}
+
+/** "adding_link" -> "Adding link". Script step summaries are shown as they are. */
+private fun friendlyStep(step: String): String =
+    if (step.contains('(')) step else step.replace('_', ' ').replaceFirstChar { it.uppercase() }

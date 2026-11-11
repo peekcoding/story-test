@@ -247,26 +247,12 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
 
             // Status label
             overlayTvStatus = TextView(this).apply {
-                text = "StoryTest"
+                text = "StoryBot"
                 setTextColor(Color.WHITE)
                 textSize = 12f
                 setPadding(0, 0, 16, 0)
             }
             pillLayout.addView(overlayTvStatus)
-
-            // Capture button (camera)
-            val captureBtn = ImageButton(this).apply {
-                setImageResource(android.R.drawable.ic_menu_camera)
-                setColorFilter(Color.parseColor("#00E676"))
-                setBackgroundColor(Color.TRANSPARENT)
-                setPadding(12, 8, 16, 8)
-                setOnClickListener {
-                    serviceScope.launch {
-                        captureScreenAndStore("Manual Inspector Capture")
-                    }
-                }
-            }
-            pillLayout.addView(captureBtn)
 
             // Stop button (red stop)
             val stopBtn = ImageButton(this).apply {
@@ -336,7 +322,7 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
                 overlayTvStatus?.setTextColor(Color.parseColor("#00E676"))
             } else {
                 overlayIvAlert?.visibility = View.GONE
-                overlayTvStatus?.text = "StoryTest"
+                overlayTvStatus?.text = "StoryBot"
                 overlayTvStatus?.setTextColor(Color.WHITE)
             }
         }

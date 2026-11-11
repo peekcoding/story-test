@@ -11,16 +11,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.outlined.CameraAlt
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Layers
-import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -36,35 +30,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import com.example.ui.StoryTestViewModel
-import com.example.ui.screens.CapturesScreen
 import com.example.ui.screens.HomeScreen
-import com.example.ui.screens.RunScreen
+import com.example.ui.screens.PopupsScreen
 import com.example.ui.screens.SafetyScreen
-import com.example.ui.screens.ScriptsScreen
+import com.example.ui.screens.SettingsScreen
 import com.example.ui.theme.DarkSurface
-import com.example.ui.theme.DarkSurfaceVariant
 import com.example.ui.theme.NeonGreen
 import com.example.ui.theme.StoryTestTheme
-import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
-
-import androidx.compose.material.icons.filled.SmartButton
-import androidx.compose.material.icons.outlined.SmartButton
-import com.example.ui.screens.PopupsScreen
-
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.outlined.Cloud
-import com.example.ui.screens.PortalScreen
 
 enum class AppTab(val title: String, val selectedIcon: ImageVector, val unselectedIcon: ImageVector) {
     HOME("Home", Icons.Filled.Home, Icons.Outlined.Home),
-    PORTAL("Portal", Icons.Filled.Cloud, Icons.Outlined.Cloud),
-    SCRIPTS("Scripts", Icons.Filled.Layers, Icons.Outlined.Layers),
-    RUN("Run", Icons.Filled.PlayArrow, Icons.Outlined.PlayArrow),
-    CAPTURES("Captures", Icons.Filled.CameraAlt, Icons.Outlined.CameraAlt),
-    POPUPS("Popups", Icons.Filled.SmartButton, Icons.Outlined.SmartButton),
-    SAFETY("Safety", Icons.Filled.Security, Icons.Outlined.Security)
+    SETTINGS("Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
+
+/** Pages opened from Settings. */
+private enum class SubPage { NONE, POPUPS, SAFETY }
 
 class MainActivity : ComponentActivity() {
 
@@ -75,7 +56,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             StoryTestTheme {
-                StoryTestAppRoot(viewModel = viewModel)
+                StoryBotRoot(viewModel = viewModel)
             }
         }
     }
@@ -87,14 +68,14 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun StoryTestAppRoot(viewModel: StoryTestViewModel) {
+fun StoryBotRoot(viewModel: StoryTestViewModel) {
     var currentTab by remember { mutableStateOf(AppTab.HOME) }
-    var preselectedScriptId by remember { mutableStateOf<Long?>(null) }
+    var subPage by remember { mutableStateOf(SubPage.NONE) }
 
-    // If not on Home, back button returns to Home
-    if (currentTab != AppTab.HOME) {
+    // Back closes a sub page first, then returns to Home.
+    if (subPage != SubPage.NONE || currentTab != AppTab.HOME) {
         BackHandler {
-            currentTab = AppTab.HOME
+            if (subPage != SubPage.NONE) subPage = SubPage.NONE else currentTab = AppTab.HOME
         }
     }
 
@@ -110,7 +91,10 @@ fun StoryTestAppRoot(viewModel: StoryTestViewModel) {
                     val isSelected = currentTab == tab
                     NavigationBarItem(
                         selected = isSelected,
-                        onClick = { currentTab = tab },
+                        onClick = {
+                            currentTab = tab
+                            subPage = SubPage.NONE
+                        },
                         icon = {
                             Icon(
                                 imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
@@ -136,37 +120,17 @@ fun StoryTestAppRoot(viewModel: StoryTestViewModel) {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            when (currentTab) {
-                AppTab.HOME -> HomeScreen(
+            when {
+                subPage == SubPage.POPUPS -> PopupsScreen(viewModel = viewModel)
+                subPage == SubPage.SAFETY -> SafetyScreen(viewModel = viewModel)
+                currentTab == AppTab.HOME -> HomeScreen(
                     viewModel = viewModel,
-                    onNavigateToRun = { currentTab = AppTab.RUN },
-                    onNavigateToScripts = { currentTab = AppTab.SCRIPTS },
-                    onNavigateToCaptures = { currentTab = AppTab.CAPTURES },
-                    onNavigateToSafety = { currentTab = AppTab.SAFETY },
-                    onNavigateToPortal = { currentTab = AppTab.PORTAL }
+                    onOpenSettings = { currentTab = AppTab.SETTINGS }
                 )
-                AppTab.PORTAL -> PortalScreen(
-                    viewModel = viewModel
-                )
-                AppTab.SCRIPTS -> ScriptsScreen(
+                else -> SettingsScreen(
                     viewModel = viewModel,
-                    onRunScript = { script ->
-                        preselectedScriptId = script.id
-                        currentTab = AppTab.RUN
-                    }
-                )
-                AppTab.RUN -> RunScreen(
-                    viewModel = viewModel,
-                    preselectedScriptId = preselectedScriptId
-                )
-                AppTab.CAPTURES -> CapturesScreen(
-                    viewModel = viewModel
-                )
-                AppTab.POPUPS -> PopupsScreen(
-                    viewModel = viewModel
-                )
-                AppTab.SAFETY -> SafetyScreen(
-                    viewModel = viewModel
+                    onOpenPopups = { subPage = SubPage.POPUPS },
+                    onOpenSafety = { subPage = SubPage.SAFETY }
                 )
             }
         }
