@@ -197,10 +197,15 @@ class StoryVideoDownloader(
             "${MediaStore.Video.Media.DATA} LIKE ? AND ${MediaStore.Video.Media.SIZE} = ?" to
                 arrayOf("%/$folder${video.fileName}", video.sizeBytes.toString())
         }
-        context.contentResolver.query(collection, arrayOf(MediaStore.Video.Media._ID), selection, args, null)?.use { c ->
-            while (c.moveToNext()) {
-                check(ContentUris.withAppendedId(collection, c.getLong(0)))?.let { return it }
+        try {
+            context.contentResolver.query(collection, arrayOf(MediaStore.Video.Media._ID), selection, args, null)?.use { c ->
+                while (c.moveToNext()) {
+                    check(ContentUris.withAppendedId(collection, c.getLong(0)))?.let { return it }
+                }
             }
+        } catch (e: SecurityException) {
+            // No permission to read videos yet: the folder is treated as empty and the video is downloaded.
+            log("Cannot read the video folders (permission not given): ${e.message}")
         }
         return null
     }
