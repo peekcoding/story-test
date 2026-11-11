@@ -156,6 +156,12 @@ class WorkRunner(
                 continue
             }
 
+            // The previous account is done: remove its window from Recents before opening the next one.
+            if (useMultiSpace && openSlot != null && openSlot != task.slotNumber) {
+                closeFinishedAccount(service, accountOpener, openSlot)
+                openSlot = null
+            }
+
             // Open this task's account in Multi Space when another one (or none) is open, or when Facebook is
             // no longer on its Home screen.
             if (useMultiSpace && (openSlot != task.slotNumber || !MultiSpaceOpener.isFacebookHome(service))) {
@@ -329,9 +335,24 @@ class WorkRunner(
             portalRepository.getWork()
         }
 
+        // The last account is done too: remove its window from Recents.
+        val lastSlot = openSlot
+        if (useMultiSpace && lastSlot != null && currentCoroutineContext().isActive) {
+            closeFinishedAccount(service, accountOpener, lastSlot)
+        }
+
         StoryTestService.updateLiveTaskState(null, null, false)
         portalRepository.setPostingWorkState(false, "Finished all pages")
         portalRepository.getWork()
+    }
+
+    /**
+     * Remove a finished Multi Space account's window from Recents (SlotBox keeps one window, so nothing to do).
+     */
+    private suspend fun closeFinishedAccount(service: StoryTestService, opener: AccountOpener, slot: Int) {
+        if (opener !is MultiSpaceOpener) return
+        portalRepository.setPostingWorkState(true, "Closing account $slot...")
+        opener.closeAccountWindow(service, slot) { android.util.Log.i("StoryBot", it) }
     }
 
     /**

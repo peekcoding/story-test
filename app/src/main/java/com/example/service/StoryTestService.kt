@@ -939,6 +939,15 @@ class StoryTestService : AccessibilityService(), AutomationActionHandler {
         }
     }
 
+    /** A straight swipe between two screen points in pixels (used to swipe a card away in Recents). */
+    suspend fun swipePixels(startX: Int, startY: Int, endX: Int, endY: Int, durationMs: Long): Boolean {
+        android.util.Log.i("StoryBot", "swipe: ($startX,$startY) -> ($endX,$endY)")
+        return dispatchGestureSwipe(startX.toFloat(), startY.toFloat(), endX.toFloat(), endY.toFloat(), durationMs)
+    }
+
+    /** Screen height in pixels. */
+    fun screenHeightPixels(): Int = getDisplayMetrics().heightPixels
+
     private suspend fun dispatchGestureSwipe(startX: Float, startY: Float, endX: Float, endY: Float, duration: Long): Boolean {
         return suspendCancellableCoroutine { cont ->
             val path = Path().apply {

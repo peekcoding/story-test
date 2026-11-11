@@ -15,6 +15,9 @@ import kotlinx.coroutines.delay
  */
 class MultiSpaceOpener(private val packageName: String = PACKAGE) : AccountOpener {
 
+    /** The name of each account (slot) as shown in Multi Space, learned when it is opened. */
+    private val accountNames = mutableMapOf<Int, String>()
+
     sealed class Result {
         object Opened : Result()
         data class Failed(val message: String) : Result()
@@ -51,6 +54,9 @@ class MultiSpaceOpener(private val packageName: String = PACKAGE) : AccountOpene
         }
 
         val name = tileName(service, tile)
+        if (name != null) {
+            accountNames[slot] = name
+        }
         onLog("Tapping Multi Space account $slot${if (name != null) " ($name)" else ""}")
         val target = clickAreaFor(service, tile) ?: tile
         if (!service.performTapNode(target)) {
@@ -77,6 +83,55 @@ class MultiSpaceOpener(private val packageName: String = PACKAGE) : AccountOpene
 
     private fun findTile(service: StoryTestService, slot: Int): ScreenNode? =
         tiles(service).firstOrNull { it.text?.trim() == slot.toString() }
+
+    /**
+     * Remove the finished account's window from Recents, so windows do not pile up when many accounts are posted.
+     * Each Multi Space account has its own card in Recents, titled with the account's name (e.g. "Aqib Jav");
+     * the card is swiped up, as a person would. Never fails a task: when the card is not found it only logs.
+     */
+    suspend fun closeAccountWindow(service: StoryTestService, slot: Int, onLog: (String) -> Unit = {}): Boolean {
+        val name = accountNames[slot]
+        if (name.isNullOrBlank()) {
+            onLog("Account $slot: name unknown, its window is left open")
+            return false
+        }
+        service.dispatchGlobal(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS)
+        delay(1_800L)
+
+        var closed = false
+        for (attempt in 1..3) {
+            val label = recentsCard(service, name)
+            if (label == null) {
+                if (attempt == 1) {
+                    // More windows than fit on the screen: look further down once.
+                    service.performVerticalSwipe(50f, 70f, 35f, 400L)
+                    delay(1_000L)
+                    continue
+                }
+                break
+            }
+            // The card's picture starts just under its title; swipe it up and off the screen.
+            val x = label.bounds.centerX
+            val startY = minOf(label.bounds.bottom + 300, service.screenHeightPixels() - 300)
+            service.swipePixels(x, startY, x, 80, 250L)
+            delay(1_200L)
+            if (recentsCard(service, name) == null) {
+                closed = true
+                break
+            }
+        }
+        onLog(if (closed) "Closed account $slot ($name) in Recents" else "Could not find account $slot ($name) in Recents")
+        android.util.Log.i("StoryBot", if (closed) "Closed account $slot ($name) in Recents" else "Account $slot ($name) not found in Recents")
+        service.dispatchGlobal(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
+        delay(1_000L)
+        return closed
+    }
+
+    /** The title of a Recents card, e.g. "Aqib Jav" above that account's window. */
+    private fun recentsCard(service: StoryTestService, name: String): ScreenNode? {
+        val matches = service.findNodes { it.visible && it.text?.trim() == name && it.bounds.top >= 0 }
+        return matches.firstOrNull { (it.viewIdResourceName ?: "").endsWith(":id/label") } ?: matches.firstOrNull()
+    }
 
     /** The name shown under the tile, e.g. "Aqib Jav". */
     private fun tileName(service: StoryTestService, tile: ScreenNode): String? {
