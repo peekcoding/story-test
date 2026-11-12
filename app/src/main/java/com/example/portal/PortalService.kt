@@ -106,8 +106,8 @@ class PortalService : Service() {
                     break
                 }
 
-                // Heartbeat interval: 10s while running a task, 30s when idle
-                val delayMs = if (isRunning) 10_000L else 30_000L
+                // Heartbeat interval: 10s while running a task, 60s when idle (keeps the server light)
+                val delayMs = if (isRunning) 10_000L else 60_000L
                 delay(delayMs)
             }
         }
@@ -117,7 +117,7 @@ class PortalService : Service() {
 
     /**
      * Starts posting by itself when the portal has pages for this phone that may start now (campaign started,
-     * or its scheduled time reached by the portal's clock). Checks every 20 seconds while idle, and wakes up
+     * or its scheduled time reached by the portal's clock). Checks every 60 seconds while idle, and wakes up
      * exactly at the next scheduled start. Does nothing while a run is going or when "Post automatically" is off.
      */
     private fun startAutoPostLoop() {
@@ -125,7 +125,7 @@ class PortalService : Service() {
         autoPostJob = serviceScope.launch {
             delay(5_000L)
             while (isActive) {
-                var waitMs = 20_000L
+                var waitMs = 60_000L
                 val runner = (application as StoryTestApp).workRunner
                 if (portalRepository.isRegistered() && portalRepository.isAutoPostEnabled() && !runner.isRunning &&
                     StoryTestService.serviceInstance.value != null
@@ -141,7 +141,7 @@ class PortalService : Service() {
                             runner.start("auto")
                         } else {
                             startsAt.filterNotNull().minOrNull()?.let { next ->
-                                waitMs = (next - nowMs + 1_000L).coerceIn(1_000L, 20_000L)
+                                waitMs = (next - nowMs + 1_000L).coerceIn(1_000L, 60_000L)
                             }
                         }
                     }
