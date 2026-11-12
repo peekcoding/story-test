@@ -1,4 +1,5 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.nio.file.Files
 
 // Suppress benign IntelliJ/KSP headless AWT-EventQueue NullPointerException
 val defaultUncaughtHandler = Thread.getDefaultUncaughtExceptionHandler()
@@ -78,7 +79,18 @@ android {
       isReturnDefaultValues = true
       all {
         it.systemProperty("robolectric.offline", "true")
-        it.systemProperty("robolectric.dependency.dir", "/home/appuser/robolectric-jars")
+        val jarsDir = file("${rootDir}/.robolectric-jars")
+        if (!jarsDir.exists()) {
+          jarsDir.mkdirs()
+          val sourceJar = file("/home/appuser/.m2/repository/org/robolectric/android-all-instrumented/16-robolectric-13921718-i7/android-all-instrumented-16-robolectric-13921718-i7.jar")
+          if (sourceJar.exists()) {
+            val linkPath = jarsDir.toPath().resolve(sourceJar.name)
+            if (!Files.exists(linkPath)) {
+              Files.createSymbolicLink(linkPath, sourceJar.toPath())
+            }
+          }
+        }
+        it.systemProperty("robolectric.dependency.dir", jarsDir.absolutePath)
       }
     }
   }
