@@ -112,6 +112,18 @@ class PortalService : Service() {
                             serviceScope.launch {
                                 PhoneTester(applicationContext, portalRepository, (application as StoryTestApp).workRunner).run(command.uuid)
                             }
+                        } else if (command.type == "sync_videos") {
+                            // Retry download on the Videos page: check the story videos now instead of in up to 5 minutes.
+                            videoSyncRequests.trySend(Unit)
+                            serviceScope.launch {
+                                val busy = (application as StoryTestApp).workRunner.isRunning
+                                portalRepository.reportCommandResult(
+                                    command.uuid,
+                                    true,
+                                    if (busy) "Posting right now; videos are downloaded when posting ends." else "Checking story videos now.",
+                                    mapOf("posting_now" to busy)
+                                )
+                            }
                         }
                     }
                 }
@@ -182,6 +194,9 @@ class PortalService : Service() {
 
     private var videoDownloadJob: Job? = null
 
+    /** Wakes the download loop early, e.g. when the portal asks to retry a download. */
+    private val videoSyncRequests = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+
     /**
      * Downloads the story videos uploaded in the portal into the model folders (D38): every 5 minutes, only while
      * the phone is not posting. A finished download is picked up by the media observer and reported with /videos.
@@ -202,7 +217,8 @@ class PortalService : Service() {
                         android.util.Log.w("StoryBot", "Story video sync failed: ${e.message}")
                     }
                 }
-                delay(5 * 60 * 1000L)
+                // Next check in 5 minutes, or sooner when the portal asks (Retry download).
+                kotlinx.coroutines.withTimeoutOrNull(5 * 60 * 1000L) { videoSyncRequests.receive() }
             }
         }
     }
