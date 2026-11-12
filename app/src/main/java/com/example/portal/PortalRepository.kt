@@ -173,6 +173,19 @@ class PortalRepository(private val context: Context) {
         return securePrefs.getString("token", null)
     }
 
+    /** Send the result of a command from the portal (e.g. a phone test). */
+    suspend fun reportCommandResult(uuid: String, ok: Boolean, message: String?, checks: Map<String, Any?>): Boolean {
+        val token = getSavedToken() ?: return false
+        return try {
+            getApi(_deviceState.value.portalAddress)
+                .reportCommandResult("Bearer $token", uuid, com.example.portal.model.DeviceCommandResultRequest(ok, message?.take(1900), checks))
+                .isSuccessful
+        } catch (e: Exception) {
+            android.util.Log.w("StoryBot", "Command result failed: ${e.message}")
+            false
+        }
+    }
+
     /** The story videos the portal wants on this phone (D38), or null when the portal could not be reached. */
     suspend fun getStoryVideos(): com.example.portal.model.StoryVideosResponse? {
         val token = getSavedToken() ?: return null

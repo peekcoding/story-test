@@ -70,6 +70,14 @@ interface PortalApi {
     ): Response<okhttp3.ResponseBody>
 
     @Headers("Accept: application/json")
+    @POST("api/device/commands/{uuid}/result")
+    suspend fun reportCommandResult(
+        @Header("Authorization") authHeader: String,
+        @retrofit2.http.Path("uuid") uuid: String,
+        @Body request: com.example.portal.model.DeviceCommandResultRequest
+    ): Response<okhttp3.ResponseBody>
+
+    @Headers("Accept: application/json")
     @retrofit2.http.GET("api/device/story-videos")
     suspend fun getStoryVideos(
         @Header("Authorization") authHeader: String

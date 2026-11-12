@@ -39,7 +39,22 @@ data class HeartbeatSuccessResponse(
     @Json(name = "device_name") val deviceName: String? = null,
     @Json(name = "server_time") val serverTime: String? = null,
     @Json(name = "current_task_status") val currentTaskStatus: String? = null,
-    @Json(name = "stop_current_task") val stopCurrentTask: Boolean = false
+    @Json(name = "stop_current_task") val stopCurrentTask: Boolean = false,
+    /** Commands from the portal to run now, e.g. a test from the Phones page. */
+    @Json(name = "commands") val commands: List<DeviceCommandItem> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class DeviceCommandItem(
+    @Json(name = "uuid") val uuid: String,
+    @Json(name = "type") val type: String
+)
+
+@JsonClass(generateAdapter = true)
+data class DeviceCommandResultRequest(
+    @Json(name = "ok") val ok: Boolean,
+    @Json(name = "message") val message: String?,
+    @Json(name = "checks") val checks: Map<String, Any?> = emptyMap()
 )
 
 sealed class EnrollResult {

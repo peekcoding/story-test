@@ -106,6 +106,16 @@ class PortalService : Service() {
                     break
                 }
 
+                if (result is HeartbeatResult.Success) {
+                    for (command in result.response.commands) {
+                        if (command.type == "test") {
+                            serviceScope.launch {
+                                PhoneTester(applicationContext, portalRepository, (application as StoryTestApp).workRunner).run(command.uuid)
+                            }
+                        }
+                    }
+                }
+
                 // Heartbeat interval: 10s while running a task, 60s when idle (keeps the server light)
                 val delayMs = if (isRunning) 10_000L else 60_000L
                 delay(delayMs)
